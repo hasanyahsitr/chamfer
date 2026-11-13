@@ -7,6 +7,8 @@ Long-term direction: a local-first AutoCAD-class drafting and solid-modeling too
 millimeter workflows, deterministic manufacturing verification, interoperable DXF/STEP files,
 and commercial freedom without mandatory cloud subscriptions.
 
+Live zero-install browser workbench: **[Open 2D CAD](https://hasanyahsitr.github.io/chamfer/)** · **[Interactive DRC Repair Demo (`?preset=fault`)](https://hasanyahsitr.github.io/chamfer/?preset=fault)**
+
 Implemented in `0.3.0a1`:
 - **Zero-Install Browser Workbench & Local Python Bridge:** The static bundle in `web/dist`
   opens directly into the 2D millimeter CAD workbench at `/` (and `/?preset=fault`) on any

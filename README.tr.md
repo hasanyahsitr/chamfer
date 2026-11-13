@@ -8,6 +8,8 @@ Uzun vadeli hedef: hassas milimetrik koordinat akışı, deterministik kesim/ür
 güvenilir DXF/STEP dosya alışverişi ve zorunlu bulut aboneliği gerektirmeyen ticari kullanım
 sunan yerel öncelikli CAD uygulaması.
 
+Kurulumsuz canlı tarayıcı çalışma alanı: **[2B CAD'i Aç](https://hasanyahsitr.github.io/chamfer/)** · **[Etkileşimli DRC Onarım Demosu (`?preset=fault`)](https://hasanyahsitr.github.io/chamfer/?preset=fault)**
+
 `0.3.0a1` sürümünde çalışan yetenekler:
 - **Kurulumsuz Tarayıcı Modu & Yerel Python Köprüsü:** Statik `web/dist` paketi herhangi bir
   statik dosya sunucusunda doğrudan `/` (ve `/?preset=fault`) kök adresinde 2B milimetrik CAD

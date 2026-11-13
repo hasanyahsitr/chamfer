@@ -102,6 +102,12 @@ Run the 12-pair static DRC fault-recall and reference B-Rep fixture check, or li
 
 ## Programmatic CAD & MCP integration (`chamfer-mcp`)
 
+Install the reusable CAD drafting and manufacturing verification skill (`skills/chamfer/SKILL.md`; repository guidelines in [AGENTS.md](AGENTS.md)):
+
+```bash
+npx skills add hasanyahsitr/chamfer
+```
+
 `chamfer-mcp` runs over standard `stdio` JSON-RPC 2.0 (`2025-03-26` / `2024-11-05`):
 
 ```json

@@ -91,6 +91,12 @@ yaklaşıklaştırılmaz, açık hata ile reddedilir:
 
 ## MCP entegrasyonu (`chamfer-mcp`)
 
+Yeniden kullanılabilir milimetrik CAD çizim ve üretim doğrulama yeteneğini (`skills/chamfer/SKILL.md`; depo kuralları için [AGENTS.md](AGENTS.md)) tek komutla kurabilirsiniz:
+
+```bash
+npx skills add hasanyahsitr/chamfer
+```
+
 ```json
 {
   "mcpServers": {

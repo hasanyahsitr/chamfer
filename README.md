@@ -1,5 +1,7 @@
 # Chamfer
 
+[![Chamfer checks](https://github.com/hasanyahsitr/chamfer/actions/workflows/ci.yml/badge.svg)](https://github.com/hasanyahsitr/chamfer/actions/workflows/ci.yml) [![GitHub Pages](https://github.com/hasanyahsitr/chamfer/actions/workflows/pages.yml/badge.svg)](https://hasanyahsitr.github.io/chamfer/) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An independent, open-source millimeter CAD workbench, deterministic geometry and specification
 verifier, and 2D-to-3D solid manufacturing bridge started by Hasan Yahşi under **Aeonavis**.
 

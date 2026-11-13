@@ -1,5 +1,7 @@
 # Chamfer
 
+[![Chamfer checks](https://github.com/hasanyahsitr/chamfer/actions/workflows/ci.yml/badge.svg)](https://github.com/hasanyahsitr/chamfer/actions/workflows/ci.yml) [![GitHub Pages](https://github.com/hasanyahsitr/chamfer/actions/workflows/pages.yml/badge.svg)](https://hasanyahsitr.github.io/chamfer/) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Hasan Yahşi tarafından **Aeonavis** çatısı altında geliştirilen bağımsız, açık kaynak
 milimetrik CAD çalışma alanı, deterministik üretim/şartname doğrulayıcısı ve 2B-3B katı
 model köprüsü.

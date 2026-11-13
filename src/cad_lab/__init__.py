@@ -1,3 +1,3 @@
-"""Original application code for the CAD Lab experiment."""
+"""Chamfer: deterministic millimeter 2D CAD, geometry verification, and MCP server."""
 
-__version__ = "0.1.0a1"
+__version__ = "0.3.0a1"

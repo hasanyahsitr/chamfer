@@ -84,7 +84,7 @@ class Project:
         if not isinstance(data, dict) or set(data) != required:
             raise ProjectError("Project fields are missing or unsupported.")
         if data["format"] != FORMAT:
-            raise ProjectError("This is not a CAD Lab project.")
+            raise ProjectError("This is not a Chamfer project.")
         if type(data["schema_version"]) is not int or data["schema_version"] != 1:
             raise ProjectError("Unsupported project version.")
         if data["units"] != "mm":

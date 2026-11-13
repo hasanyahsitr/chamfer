@@ -1,4 +1,4 @@
-name: CAD checks
+name: Chamfer checks
 
 on:
   push:
@@ -22,11 +22,20 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - run: python -m pip install -r requirements.lock
       - run: python -m pip install --no-deps -e .
       - run: python -m ruff check .
       - run: python -m ruff format --check .
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
       - run: python -m pytest -q
+      - run: python benchmarks/spatial_eval.py
+      - run: python -m cad_lab.cli --lint-drawing examples/office-layout.cadlab.json
       - run: python -m cad_lab.cli --project examples/plate.cadlab.json --out artifacts/default
       - run: python -m cad_lab.cli --project examples/plate.cadlab.json --width 100 --out artifacts/wide
       - uses: actions/upload-artifact@v4
@@ -51,3 +60,4 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+      - run: node -e "const fs = require('node:fs'); const html = fs.readFileSync('dist/index.html', 'utf8'); if (!html.includes('id=\"drawing-canvas\"')) process.exit(1);"

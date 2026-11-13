@@ -118,7 +118,7 @@ test('invalid imports and failed transforms do not replace the current drawing',
   assert.throws(() => store.commit(bad));
   assert.deepEqual(store.document, before);
 });
-test('review: polar coordinates and decimal grammar are locale independent', () => {
+test('polar coordinates and decimal grammar are locale independent', () => {
   const p = parsePoint('@100<30', [20, 30]);
   assert.ok(Math.abs(p[0] - (20 + 50 * Math.sqrt(3))) < 1e-9);
   assert.ok(Math.abs(p[1] - 80) < 1e-9);
@@ -127,7 +127,7 @@ test('review: polar coordinates and decimal grammar are locale independent', () 
   assert.throws(() => parsePoint('0x10,2'));
   assert.throws(() => parsePoint('10,,2'));
 });
-test('review: closing edge midpoint remains a snap target, including on locked layers', () => {
+test('closing edge midpoint remains a snap target, including on locked layers', () => {
   const store = new DrawingStore();
   store.add({
     type: 'polyline',

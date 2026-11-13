@@ -1,4 +1,6 @@
 // Analytical window/crossing tests on actual curves, not bounding-box overlap alone.
+import { arcPointAt, arcSweepDeg, dimGeometry, entityPoints, textBoundsPoints } from './model.js';
+
 const EPS = 1e-9;
 const inside = (p, r) =>
   p[0] >= r.minX - EPS && p[0] <= r.maxX + EPS && p[1] >= r.minY - EPS && p[1] <= r.maxY + EPS;
@@ -22,11 +24,21 @@ function segmentCrosses(a, b, r) {
   }
   return true;
 }
+
 function segments(entity) {
   const pairs = entity.points.slice(1).map((p, i) => [entity.points[i], p]);
   if (entity.closed) pairs.push([entity.points.at(-1), entity.points[0]]);
   return pairs;
 }
+
+function arcSegments(entity, steps = 24) {
+  const sweep = arcSweepDeg(entity.start_angle, entity.end_angle);
+  const pts = Array.from({ length: steps + 1 }, (_, i) =>
+    arcPointAt(entity, entity.start_angle + (sweep * i) / steps),
+  );
+  return pts.slice(1).map((p, i) => [pts[i], p]);
+}
+
 export function entitiesInBox(drawing, a, b, crossing = a[0] > b[0]) {
   const rect = {
     minX: Math.min(a[0], b[0]),
@@ -54,6 +66,29 @@ export function entitiesInBox(drawing, a, b, crossing = a[0] > b[0]) {
           Math.max(Math.abs(y - rect.minY), Math.abs(y - rect.maxY)),
         );
         return min <= r + EPS && max >= r - EPS;
+      }
+      if (entity.type === 'arc') {
+        const curvePts = entityPoints(entity).slice(1);
+        if (!crossing) return curvePts.every((p) => inside(p, rect));
+        return arcSegments(entity).some(([p, q]) => segmentCrosses(p, q, rect));
+      }
+      if (entity.type === 'dim') {
+        const g = dimGeometry(entity);
+        const dimSegs = [
+          [g.p1, g.d1],
+          [g.p2, g.d2],
+          [g.d1, g.d2],
+        ];
+        return crossing
+          ? dimSegs.some(([p, q]) => segmentCrosses(p, q, rect))
+          : [g.p1, g.p2, g.d1, g.d2].every((p) => inside(p, rect));
+      }
+      if (entity.type === 'text') {
+        const corners = textBoundsPoints(entity);
+        const textSegs = corners.map((p, i) => [p, corners[(i + 1) % corners.length]]);
+        return crossing
+          ? textSegs.some(([p, q]) => segmentCrosses(p, q, rect))
+          : corners.every((p) => inside(p, rect));
       }
       return crossing
         ? segments(entity).some(([p, q]) => segmentCrosses(p, q, rect))

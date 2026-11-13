@@ -20,7 +20,7 @@ function message(text, error = false) {
       'Merkez–kenar mesafesi, delik yarıçapından büyük olmalı.',
     'Project fields are missing or unsupported.':
       'Proje alanları eksik veya bu sürüm tarafından desteklenmiyor.',
-    'This is not a CAD Lab project.': 'Bu dosya bir CAD Lab projesi değil.',
+    'This is not a Chamfer project.': 'Bu dosya bir Chamfer projesi değil.',
     'Unsupported project version.': 'Bu proje sürümü henüz desteklenmiyor.',
     'This version supports millimeters only.': 'Bu sürüm yalnız milimetre birimini destekliyor.',
     'Invalid model definition.': 'Projedeki model tanımı geçersiz.',

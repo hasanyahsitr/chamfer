@@ -1,21 +1,49 @@
-# CAD Lab
+# Chamfer
 
-Hasan Yahşi tarafından başlatılan bağımsız açık kaynak CAD projesi.
-**CAD Lab geçici çalışma adıdır; ürün adı birlikte seçilecek.**
+Hasan Yahşi tarafından **Aeonavis** çatısı altında geliştirilen bağımsız, açık kaynak
+milimetrik CAD çalışma alanı, deterministik üretim/şartname doğrulayıcısı ve 2B-3B katı
+model köprüsü.
 
-Uzun vadeli hedef: ölçülü eskizler, düzenlenebilir katı modeller, montajlar,
-teknik çizimler ve güvenilir dosya alışverişi sunan, çevrimdışı kullanılabilen CAD.
-Ticari kullanım için zorunlu abonelik hedeflenmiyor.
+Uzun vadeli hedef: hassas milimetrik koordinat akışı, deterministik kesim/üretim doğrulaması,
+güvenilir DXF/STEP dosya alışverişi ve zorunlu bulut aboneliği gerektirmeyen ticari kullanım
+sunan yerel öncelikli CAD uygulaması.
 
-Ana uygulama artık AutoCAD tarzı 2B çizim çalışma alanıdır: komut satırı, çizim
-nesneleri, katmanlar, nesne seçimi/yakalama, geri al/yinele ve DXF dışa aktarma.
-Dört delikli plaka önceki geometri denemesi olarak ayrı tutulur. Tam AutoCAD
-eşdeğerliği, montaj ve genel amaçlı kısıt çözücü tamamlanmış özellikler değildir.
+`0.3.0a1` sürümünde çalışan yetenekler:
+- **Kurulumsuz Tarayıcı Modu & Yerel Python Köprüsü:** Statik `web/dist` paketi herhangi bir
+  statik dosya sunucusunda doğrudan `/` (ve `/?preset=fault`) kök adresinde 2B milimetrik CAD
+  çalışma alanını açar: istemci tarafı R2010 mm ASCII DXF içe/dışa aktarma (`CONSTRUCTION`
+  kesim dışı katmanların `plot=0` olarak korunması dahil), üretim DRC mühürlü ISO `.svg` pafta
+  çıktısı ve yeşil kesikli koordinat farkı önizlemeli DRC onarım akışı. Yerelde `chamfer-serve`
+  (`127.0.0.1:4310`) açık olduğunda canlı senkronizasyon, sentez ve Open CASCADE 3B STEP
+  ekstrüzyonu otomatik devreye girer.
+- **2B Milimetrik Çizim Motoru (Python ↔ JS İkiz Parite):** Komut satırı (`LINE`, `PLINE`,
+  `RECTANG`, `CIRCLE`, `ARC`, `OFFSET`, `CHAMFER`, `FILLET`, `TRIM`, `ROTATE`, `MIRROR`,
+  `ARRAY`, `DIM`, `TEXT`, `MOVE`, `COPY`, `ERASE`, `DIST`, `DENETLE`/`LINT`, `UNDO`, `REDO`,
+  `LAYER` — kesim dışı `CONSTRUCTION` referans katmanları dahil), `TR / EN` arayüz dili geçişi,
+  yakalama sembolleri (`END`, `MID`, `CEN`, `QUAD`, `INT`, `PER`) ve standart parça şablonları
+  (`NEMA-17`, `ISO DN50`, `EIA 19" 1U`).
+- **Analitik Topoloji ve Üretim Denetleyicisi (`DRC`):** Nesne sırasından bağımsız düzlemsel
+  `LINE + ARC` halka zincirleme (`1e-4 mm` ortak tolerans), analitik Green teoremi alan hesabı,
+  poligon örneklemesi kullanmayan analitik eğri kesişimleri (eşmerkezli olmayan `ARC-ARC`
+  kesişim ve et kalınlığı kontrolleri dahil) ve eğri-duyarlı ışın (ray-casting) kapsama ağacı,
+  üçlü kavşak (`T-branch`) / öz-kesişim reddi ve tek parça üretim kapısı
+  (`MULTIPLE_OUTER_PROFILES`, `NESTED_ISLAND_UNSUPPORTED`).
+- **2B -> 3B Open CASCADE Katı Model Köprüsü (`STEP / STL`) & CAM Telemetrisi:** Doğrulanmış
+  tek parçalı 2B kesit profillerini Open CASCADE (`build123d`) 3B B-Rep katı modeline dönüştürür;
+  pozitif katı hacmi, katı sayısını (`1`), üst yüzey iç tel (`inner_wires`) sayısını ve 2B–3B
+  hacim + 3B yüzey alanı tutarlılığını zorunlu tutar; `.step` / `.stl` dışa aktarım ve kütle
+  hesabı sunar.
+- **Aday-Öncelikli Sentez, Unsur Doğrulaması & MCP Sunucusu (`chamfer-mcp`):** HTTP state/exec
+  uçlarında aday doğrulaması tamamlanmadan aktif belge ve revizyon değiştirilmez; iç içe JSON
+  derinlik sınırı (`max_depth=64`), `expected_revision` CAS (`HTTP 409`), `request_id`
+  idempotency ve bağlantı kopmalarında belirsiz yazmayı sessizce yerel oturuma düşürmeyen
+  `stdio` MCP köprüsü bulunur. Çevrimdışı kural derleyicisi ve yerel LLM çalışma zamanları,
+  yalnız delik sayısını değil obround slot kapsül geometrisini, flanş `OD/ID/PCD` açısal
+  dizilimini ve köşe pah/radyüs unsurlarını doğrular.
 
-Gelişmeler küçük commit'ler, tekrar üretilebilir örnekler ve doğrulama sonuçlarıyla
-GitHub'da izlenir. Kişisel web sitesi ve bağlantı sayfalarından ayrı bir projedir.
+![Ölçülendirilmiş CNC kanal plakası, CAM telemetrisi ve canlı üretim denetimi açık olan Chamfer iş istasyonu](docs/assets/drafting-workbench.png)
 
-![Katmanlı ofis taslağı açık olan CAD Lab çalışma alanı](docs/assets/drafting-workbench.png)
+![NEMA-17 motor bağlantı flanşının 2B çizimden 3B Open CASCADE katı modele dönüştürülmesi](docs/assets/extrude-3d-solid.png)
 
 ## Yerelde çalıştırma
 
@@ -27,44 +55,50 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --no-deps -e .
 npm --prefix web ci
 npm --prefix web run build
-.\.venv\Scripts\python.exe -m cad_lab.server
+.\.venv\Scripts\chamfer-serve.exe --port 4310
 ```
 
-Tarayıcıda **http://127.0.0.1:4310** adresini açın. Ana sayfa 2B çizim alanıdır.
-3B plaka denemesi `/index.html` adresindedir; buradaki “Modeli oluştur” düğmesi
-plaka ölçülerini uygular. Proje dosyası düzenlenebilir veriyi saklar;
-STEP dosyası işlem geçmişinin yerine geçmez.
+Tarayıcıda **http://127.0.0.1:4310** adresini (veya doğrudan hatalı CNC braketini inceleyip
+önerilen koordinat onarımını tuval üstünde görmek için **http://127.0.0.1:4310/?preset=fault**
+adresini) açın.
 
-3B denemesinde ok tuşları döndürür, `+`/`-` yakınlaştırır, `F` modeli sığdırır.
-Hesap veya bulut geometri servisi gerekmez. Bağımlılıklar kurulduktan sonra model
-işlemleri yerelde çalışır. Sunucu yalnız bu bilgisayardan erişilecek şekilde açılır.
+## Mekansal Doğrulama Paketi (`spatial_eval.py`) ve DRC Testleri
 
-Ana sayfada `REC 0,0 100,60` ve `C 20,20 5` komutlarını deneyin. Bir nesneyi seçip
-`M 0,0 10,0` yazarak taşıyın. `LINE`, `PLINE`, `CIRCLE`, `RECTANG`, `MOVE`, `COPY`,
-`ERASE`, `DIST`, `UNDO`, `REDO` çalışır. LINE/PLINE Enter ile tamamlanır; `C` kapatır,
-komut içindeki `U` son noktayı geri alır. Çemberde `D` çap seçeneğidir.
-Ondalık ayıracı nokta, koordinat ayıracı virgüldür; göreli giriş `@20,0`, kutupsal
-giriş `@50<90` biçimindedir. Shift ile çoklu seçim, orta fare tuşuyla kaydırma yapılır.
+6 mekanik parça ailesinde `36` pozitif kural-derleyicisi & DSL görevini (atomik yürütme, üretim
+DRC, Python↔JS paritesi, R2010 DXF round-trip, ham-JSON unsur doğrulaması ve Open CASCADE `.step`
+serileştirme round-trip hacim + 3B yüzey alanı + zarf kontrolü), `15` seçilmiş yanıltıcı/şartname
+tuzağını ve `6` deterministik DRC onarımını sınayan doğrulama paketi (varsayılan mod çevrimdışı
+kural derleyicisini ölçer; harici LLM ölçümü için `--runtime <id>` verilebilir):
 
-2B çizim JSON olarak kaydedilip yeniden açılır; desteklenen çizgi, çoklu çizgi ve
-çemberler DXF'e aktarılır. Aynı düzlemsel model-altkümesindeki, mm birimi açıkça
-tanımlı ASCII DXF dosyaları da açılır. Desteklenmeyen öğeler mevcut çizim korunarak
-reddedilir; aktarım raporunda kapsam belirtilir. DWG, ölçülendirme/pafta, montaj ve
-kurulum paketi henüz yok. 3B denemesi `/index.html` adresindedir; STEP/STL çıktısı buradan alınır.
-Farklı bir CAD programında doğrulama ve gerçek kullanıcı karşılaştırması bekliyor.
+```powershell
+.\.venv\Scripts\python.exe benchmarks/spatial_eval.py
+.\.venv\Scripts\python.exe benchmarks/drc_benchmark.py
+.\.venv\Scripts\chamfer.exe --lint-drawing examples/nema17-motor-mount.cadlab.json
+```
 
-Komut ve geometri doğrulama notları: [doğrulama sonuçları](docs/REVIEW-RESULTS.md).
+## Açık kapsam ve sınırlar
 
-**Aç** ile [ofis örneğini](examples/office-layout.cadlab.json) yükleyebilirsiniz:
-10 × 7 metre yerleşim, mm koordinatları, 33 düzenlenebilir nesne ve üç katman içerir.
-Mobilyayı taşıyıp geri alın; kilitli akslara dokunmadan duvar çizgilerini düzenleyin.
-Bu basitleştirilmiş taslak bir uygulama örneğidir; inşaat uygulama projesi değildir.
-Izgara yakınlaştırmaya göre okunabilir 1/2/5 aralıklarına uyarlanır; ızgara yakalama
-görünen aralığı kullanır. Komutla girilen koordinatlar mm hassasiyetini korur.
+Chamfer `0.3.0a1`, **düzlemsel XY tek-parça kesit profillerini sabit kalınlıkta prizmatik 3B katı
+modele dönüştürme** iş akışına odaklanır. Desteklenmeyen topoloji veya varlıklar sessizce
+yaklaşıklaştırılmaz, açık hata ile reddedilir:
+- Çoklu ayrık dış profiller (`MULTIPLE_OUTER_PROFILES`) ve delik içi serbest adalar (`NESTED_ISLAND_UNSUPPORTED`) tek parça üretim modunda reddedilir.
+- DXF `LWPOLYLINE` bulge/kalınlık, `SPLINE`, `BLOCK/INSERT`, kağıt uzayı ve ölçüsü hizalı uç mesafesinden sapan döndürülmüş/açısal `DIMENSION` alt türleri mevcut çizimi bozmadan reddedilir.
+- Etkileşimli 2B kısıt çözücü, çok adımlı 3B unsur ağacı, montajlar, G-code üretimi, sac büküm açınımı ve tescilli DWG formatı henüz kapsam dışıdır ([yol haritası](docs/ROADMAP.md)).
 
-Soldan sağa sürükleyerek tamamen içerideki nesneleri seçin; sağdan sola sürükleme,
-pencereyle gerçekten kesişen nesneleri de seçer. Boş çember içini taramak çemberi seçmez.
+## MCP entegrasyonu (`chamfer-mcp`)
+
+```json
+{
+  "mcpServers": {
+    "chamfer": {
+      "command": "chamfer-mcp",
+      "args": ["--port", "4310"]
+    }
+  }
+}
+```
 
 - [Yol haritası](docs/ROADMAP.md)
 - [Teknik kararlar](docs/DECISIONS.md)
+- [Doğrulama notları](docs/REVIEW-RESULTS.md)
 - [Bağımlılık ve lisanslar](THIRD_PARTY.md)

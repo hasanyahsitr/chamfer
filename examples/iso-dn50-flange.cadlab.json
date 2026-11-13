@@ -1,0 +1,144 @@
+{
+  "format": "cad-lab.drawing",
+  "schema_version": 1,
+  "units": "mm",
+  "name": "ISO-DN50-PN16-FLANGE",
+  "layers": [
+    {
+      "id": "0",
+      "name": "0",
+      "color": "#d4d8de",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "0-profile",
+      "name": "0-PROFILE",
+      "color": "#dce2ea",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "bore-and-bolts",
+      "name": "BORE-AND-BOLTS",
+      "color": "#5aa9e6",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "dimensions",
+      "name": "DIMENSIONS",
+      "color": "#e09b24",
+      "visible": true,
+      "locked": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "flange-od",
+      "layer": "0-profile",
+      "type": "circle",
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 82.5
+    },
+    {
+      "id": "pipe-id",
+      "layer": "bore-and-bolts",
+      "type": "circle",
+      "center": [
+        0.0,
+        0.0
+      ],
+      "radius": 30.75
+    },
+    {
+      "id": "bolt-1",
+      "layer": "bore-and-bolts",
+      "type": "circle",
+      "center": [
+        44.194174,
+        44.194174
+      ],
+      "radius": 9.0
+    },
+    {
+      "id": "bolt-1-p2",
+      "layer": "bore-and-bolts",
+      "type": "circle",
+      "center": [
+        -44.194174,
+        44.194174
+      ],
+      "radius": 9.0
+    },
+    {
+      "id": "bolt-1-p3",
+      "layer": "bore-and-bolts",
+      "type": "circle",
+      "center": [
+        -44.194174,
+        -44.194174
+      ],
+      "radius": 9.0
+    },
+    {
+      "id": "bolt-1-p4",
+      "layer": "bore-and-bolts",
+      "type": "circle",
+      "center": [
+        44.194174,
+        -44.194174
+      ],
+      "radius": 9.0
+    },
+    {
+      "id": "dim-od",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        -82.5,
+        0.0
+      ],
+      "p2": [
+        82.5,
+        0.0
+      ],
+      "dim_point": [
+        0.0,
+        -96.0
+      ]
+    },
+    {
+      "id": "dim-id",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        -30.75,
+        0.0
+      ],
+      "p2": [
+        30.75,
+        0.0
+      ],
+      "dim_point": [
+        0.0,
+        96.0
+      ]
+    },
+    {
+      "id": "note",
+      "layer": "dimensions",
+      "type": "text",
+      "position": [
+        -52.0,
+        -110.0
+      ],
+      "height": 3.5,
+      "rotation": 0.0,
+      "text": "DN50 PN16 // OD 165 // ID 61.5 // 4xD18 PCD 125"
+    }
+  ]
+}

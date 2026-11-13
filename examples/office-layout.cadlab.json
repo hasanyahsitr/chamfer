@@ -16,14 +16,16 @@
       "name": "Mobilya",
       "color": "#d3b689",
       "visible": true,
-      "locked": false
+      "locked": false,
+      "construction": true
     },
     {
       "id": "axes",
       "name": "Aks",
       "color": "#527d96",
       "visible": true,
-      "locked": true
+      "locked": true,
+      "construction": true
     }
   ],
   "entities": [

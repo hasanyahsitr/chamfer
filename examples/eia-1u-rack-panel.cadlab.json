@@ -1,0 +1,348 @@
+{
+  "format": "cad-lab.drawing",
+  "schema_version": 1,
+  "units": "mm",
+  "name": "EIA-19IN-1U-PANEL",
+  "layers": [
+    {
+      "id": "0",
+      "name": "0",
+      "color": "#d4d8de",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "0-chassis",
+      "name": "0-CHASSIS",
+      "color": "#dce2ea",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "ear-mounts",
+      "name": "EAR-MOUNTS",
+      "color": "#5aa9e6",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "vents",
+      "name": "VENTS",
+      "color": "#6bcf8e",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "dimensions",
+      "name": "DIMENSIONS",
+      "color": "#e09b24",
+      "visible": true,
+      "locked": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "panel",
+      "layer": "0-chassis",
+      "type": "polyline",
+      "points": [
+        [
+          0.0,
+          1.5
+        ],
+        [
+          1.5,
+          0.0
+        ],
+        [
+          481.1,
+          0.0
+        ],
+        [
+          482.6,
+          1.5
+        ],
+        [
+          482.6,
+          42.95
+        ],
+        [
+          481.1,
+          44.45
+        ],
+        [
+          1.5,
+          44.45
+        ],
+        [
+          0.0,
+          42.95
+        ]
+      ],
+      "closed": true
+    },
+    {
+      "id": "ear-bl",
+      "layer": "ear-mounts",
+      "type": "circle",
+      "center": [
+        8.5,
+        6.35
+      ],
+      "radius": 3.2
+    },
+    {
+      "id": "ear-tl",
+      "layer": "ear-mounts",
+      "type": "circle",
+      "center": [
+        8.5,
+        38.1
+      ],
+      "radius": 3.2
+    },
+    {
+      "id": "ear-br",
+      "layer": "ear-mounts",
+      "type": "circle",
+      "center": [
+        474.1,
+        6.35
+      ],
+      "radius": 3.2
+    },
+    {
+      "id": "ear-tr",
+      "layer": "ear-mounts",
+      "type": "circle",
+      "center": [
+        474.1,
+        38.1
+      ],
+      "radius": 3.2
+    },
+    {
+      "id": "vent-base",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        151.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c2",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        176.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c3",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        201.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c4",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        226.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c5",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        251.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c6",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        276.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c7",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        301.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r1c8",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        326.3,
+        14.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c1",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        151.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c2",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        176.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c3",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        201.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c4",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        226.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c5",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        251.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c6",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        276.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c7",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        301.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "vent-base-r2c8",
+      "layer": "vents",
+      "type": "circle",
+      "center": [
+        326.3,
+        30.225
+      ],
+      "radius": 4.0
+    },
+    {
+      "id": "dim-total-w",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        0.0,
+        0.0
+      ],
+      "p2": [
+        482.6,
+        0.0
+      ],
+      "dim_point": [
+        241.3,
+        -14.0
+      ]
+    },
+    {
+      "id": "dim-1u-h",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        482.6,
+        0.0
+      ],
+      "p2": [
+        482.6,
+        44.45
+      ],
+      "dim_point": [
+        500.0,
+        22.225
+      ]
+    },
+    {
+      "id": "dim-mount-pitch",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        8.5,
+        38.1
+      ],
+      "p2": [
+        474.1,
+        38.1
+      ],
+      "dim_point": [
+        241.3,
+        56.0
+      ]
+    },
+    {
+      "id": "title",
+      "layer": "dimensions",
+      "type": "text",
+      "position": [
+        150.0,
+        -26.0
+      ],
+      "height": 4.0,
+      "rotation": 0.0,
+      "text": "EIA-310 19-INCH 1U PANEL (482.6 x 44.45 MM)"
+    }
+  ]
+}

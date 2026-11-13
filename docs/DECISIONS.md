@@ -1,46 +1,33 @@
 # Engineering decisions
 
-## Latest direction clarification
+## Product identity and architecture
 
-The project targets an AutoCAD-class application, not a product limited to the
-plate experiment. The default UI is now the 2D drafting workspace, with original code
-and assets implementing familiar workflows. The existing 3D experiment remains at
-`/index.html`. See `AUTOCAD-DIRECTION.md` and `REVIEW-RESULTS.md` for the updated scope
-and the verification notes. The earlier sections below describe
-the initial geometry milestone and are retained as development history.
+The project is named **Chamfer** (developed under **Aeonavis**). The Python package
+retains the internal module path `cad_lab` and JSON format tag `cad-lab.drawing` /
+`cad-lab.project` for backward compatibility with existing project files, while exposing
+`chamfer`, `chamfer-serve`, and `chamfer-mcp` entry points.
 
-## Direction and scope
+The default UI is the 2D millimeter drafting workbench (`drafting.html`), paired with:
+1. A deterministic planar geometry and manufacturing linter (`linter.py` and `linter.js`)
+   that verifies closed contours, minimum web clearances, duplicate cuts, and hole placement.
+2. A headless command processor (`commands.py`) and standard `stdio` MCP server
+   (`mcp_server.py`) capable of driving and verifying drawings programmatically and
+   mirroring state live to the local browser workspace.
 
-This repository establishes an independent open-source CAD project, publishing
-incremental progress on GitHub. AutoCAD-scale ambition is the long-term direction.
-The first experiment follows a 3D parametric-part workflow; a full 2D drafting
-application and DWG compatibility are separate unsolved scopes.
+The initial 3D parametric plate experiment remains accessible at `/index.html`. See
+`AUTOCAD-DIRECTION.md` and `REVIEW-RESULTS.md` for scope and verification details.
 
-## Working name
+## Initial scope history
 
-Temporary repository name: `cad-lab`. Candidate brands: Kivora CAD, Veyra CAD,
-Orvanta CAD. An exact-name web search returned no matches during the initial check;
-this is not a trademark, domain, or package-name clearance. No domain is purchased.
+The project began as an independent open-source CAD foundation published incrementally on
+GitHub, starting with a reproducible 3D parametric-part milestone (`80 × 50 × 6 mm` plate
+with four `5 mm` through-holes at `10 mm` edge margins) using Python 3.12 and
+`build123d 0.13.0` over Open CASCADE. Versioned JSON stores editable parameters; STEP and
+DXF serve as verified interchange formats.
 
-## First executable milestone
+## Local security and dependencies
 
-A plate 80 × 50 × 6 mm with four 5 mm through-holes whose centers are 10 mm from
-the adjacent edges. Changing the width to 100 mm preserves these margins.
-Use a versioned JSON project format; STEP is an exchange format, not the editable
-feature history. Parameter-driven regeneration does not prove a general sketch solver.
-
-## Technology experiment
-
-Use Python 3.12 and build123d 0.13.0 over Open CASCADE for the initial geometry
-experiment. Keep the application model independent from presentation code.
-The final desktop shell, language mix, and platform strategy remain open.
-
-Start with Windows, which is the current development environment. Dependencies
-belong in a project-specific virtual environment. No global Python changes are needed.
-
-## Public development
-
-Original work is MIT-licensed with explicit upstream attribution. Use small commits
-for meaningful changes, run relevant checks, and publish the source under the user's
-GitHub account. Do not publish credentials, generated environments, or unrelated files.
-This project does not change existing websites, DNS, or production deployments.
+- The HTTP server binds exclusively to loopback (`127.0.0.1`) and enforces `Host`,
+  `Origin`, `Content-Security-Policy`, and strict request payload byte limits.
+- Dependencies live in a project-local virtual environment (`.venv`) and `web/node_modules`.
+- Original code is MIT-licensed with explicit upstream license attribution in `THIRD_PARTY.md`.

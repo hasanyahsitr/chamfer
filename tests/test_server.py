@@ -114,3 +114,33 @@ def test_default_page_prefers_drafting_without_exposing_source_tree(local_server
     (local_server.web_root / "drafting.html").write_text("<h1>Drafting</h1>", encoding="utf-8")
     assert request(local_server, "GET", "/")[2] == b"<h1>Drafting</h1>"
     assert request(local_server, "GET", "/index.html")[2] == b"<h1>CAD</h1>"
+
+
+def test_drawing_lint_endpoint_returns_deterministic_diagnostics(local_server):
+    drawing = {
+        "format": "cad-lab.drawing",
+        "schema_version": 1,
+        "units": "mm",
+        "name": "Lint API",
+        "layers": [{"id": "0", "name": "0", "color": "#abcdef", "visible": True, "locked": False}],
+        "entities": [
+            {
+                "id": "outer",
+                "layer": "0",
+                "type": "polyline",
+                "points": [[0, 0], [60, 0], [60, 40], [0, 40], [0, 0.4]],
+                "closed": False,
+            }
+        ],
+    }
+    status, _, body = request(
+        local_server,
+        "POST",
+        "/api/drawing/lint",
+        json.dumps(drawing),
+        {"Content-Type": "application/json"},
+    )
+    assert status == 200
+    payload = json.loads(body)
+    assert payload["valid"] is False
+    assert payload["issues"][0]["code"] == "OPEN_CONTOUR_GAP"

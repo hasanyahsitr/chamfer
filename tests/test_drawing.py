@@ -99,12 +99,12 @@ def test_windows_crlf_input_preserves_header_units_and_geometry():
     assert result["report"]["entities"] == 3
 
 
-@pytest.mark.parametrize("kind", ["TEXT", "POLYLINE_BULGE", "UNIT_INCH", "Z_LINE", "PAPERSPACE"])
+@pytest.mark.parametrize("kind", ["SPLINE", "POLYLINE_BULGE", "UNIT_INCH", "Z_LINE", "PAPERSPACE"])
 def test_unsupported_dxf_is_rejected_instead_of_silently_dropping_geometry(kind):
     document = ezdxf.new("R2010", units=ezdxf.units.MM)
     model = document.modelspace()
-    if kind == "TEXT":
-        model.add_text("Do not silently lose me")
+    if kind == "SPLINE":
+        model.add_spline([(0, 0), (5, 10), (10, 0)])
     elif kind == "POLYLINE_BULGE":
         model.add_lwpolyline([(0, 0, 0, 0, 1), (10, 0, 0, 0, 0)])
     elif kind == "UNIT_INCH":

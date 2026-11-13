@@ -1,6 +1,6 @@
 {
-  "name": "cad-lab-viewport",
-  "version": "0.1.0-alpha.1",
+  "name": "chamfer-web",
+  "version": "0.3.0-alpha.1",
   "private": true,
   "type": "module",
   "scripts": {

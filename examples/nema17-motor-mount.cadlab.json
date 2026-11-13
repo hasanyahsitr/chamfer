@@ -1,0 +1,174 @@
+{
+  "format": "cad-lab.drawing",
+  "schema_version": 1,
+  "units": "mm",
+  "name": "NEMA17-MOTOR-MOUNT",
+  "layers": [
+    {
+      "id": "0",
+      "name": "0",
+      "color": "#d4d8de",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "0-profile",
+      "name": "0-PROFILE",
+      "color": "#dce2ea",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "cutouts",
+      "name": "CUTOUTS",
+      "color": "#5aa9e6",
+      "visible": true,
+      "locked": false
+    },
+    {
+      "id": "dimensions",
+      "name": "DIMENSIONS",
+      "color": "#e09b24",
+      "visible": true,
+      "locked": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "frame",
+      "layer": "0-profile",
+      "type": "polyline",
+      "points": [
+        [
+          0.0,
+          3.5
+        ],
+        [
+          3.5,
+          0.0
+        ],
+        [
+          38.8,
+          0.0
+        ],
+        [
+          42.3,
+          3.5
+        ],
+        [
+          42.3,
+          38.8
+        ],
+        [
+          38.8,
+          42.3
+        ],
+        [
+          3.5,
+          42.3
+        ],
+        [
+          0.0,
+          38.8
+        ]
+      ],
+      "closed": true
+    },
+    {
+      "id": "pilot-bore",
+      "layer": "cutouts",
+      "type": "circle",
+      "center": [
+        21.15,
+        21.15
+      ],
+      "radius": 11.0
+    },
+    {
+      "id": "m3-bl",
+      "layer": "cutouts",
+      "type": "circle",
+      "center": [
+        5.65,
+        5.65
+      ],
+      "radius": 1.7
+    },
+    {
+      "id": "m3-bl-r1c2",
+      "layer": "cutouts",
+      "type": "circle",
+      "center": [
+        36.65,
+        5.65
+      ],
+      "radius": 1.7
+    },
+    {
+      "id": "m3-bl-r2c1",
+      "layer": "cutouts",
+      "type": "circle",
+      "center": [
+        5.65,
+        36.65
+      ],
+      "radius": 1.7
+    },
+    {
+      "id": "m3-bl-r2c2",
+      "layer": "cutouts",
+      "type": "circle",
+      "center": [
+        36.65,
+        36.65
+      ],
+      "radius": 1.7
+    },
+    {
+      "id": "dim-frame",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        0.0,
+        0.0
+      ],
+      "p2": [
+        42.3,
+        0.0
+      ],
+      "dim_point": [
+        21.15,
+        -6.5
+      ]
+    },
+    {
+      "id": "dim-pitch",
+      "layer": "dimensions",
+      "type": "dim",
+      "p1": [
+        5.65,
+        36.65
+      ],
+      "p2": [
+        36.65,
+        36.65
+      ],
+      "dim_point": [
+        21.15,
+        48.0
+      ]
+    },
+    {
+      "id": "note-spec",
+      "layer": "dimensions",
+      "type": "text",
+      "position": [
+        2.0,
+        -12.0
+      ],
+      "height": 2.2,
+      "rotation": 0.0,
+      "text": "NEMA-17 FACEPLATE // 4xM3 // PILOT D22"
+    }
+  ]
+}

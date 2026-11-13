@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cad-lab"
-version = "0.1.0a1"
-description = "An independent local-first CAD geometry experiment"
+version = "0.3.0a1"
+description = "Chamfer: deterministic 2D/3D CAD workbench, DXF verifier, and MCP server"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = "MIT"
@@ -16,6 +16,9 @@ dependencies = ["build123d==0.13.0", "ezdxf==1.4.5"]
 dev = ["pytest==9.2.0", "ruff==0.17.3"]
 
 [project.scripts]
+chamfer = "cad_lab.cli:main"
+chamfer-serve = "cad_lab.server:main"
+chamfer-mcp = "cad_lab.mcp_server:main"
 cad-lab = "cad_lab.cli:main"
 cad-lab-serve = "cad_lab.server:main"
 

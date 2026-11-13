@@ -5,17 +5,32 @@ import json
 import sys
 from pathlib import Path
 
+from cad_lab.drawing import MAX_DRAWING_BYTES
 from cad_lab.geometry import build_plate, export_part, reimport_step, validate_part
+from cad_lab.linter import lint_drawing
 from cad_lab.project import MAX_PROJECT_BYTES, PlateParameters, Project, ProjectError
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CAD Lab: exact local CAD geometry experiment")
+    parser = argparse.ArgumentParser(
+        description="Chamfer: deterministic millimeter CAD & geometry verifier"
+    )
     parser.add_argument("--project", type=Path, help="Open a versioned .cadlab.json project")
+    parser.add_argument(
+        "--lint-drawing",
+        type=Path,
+        help="Run deterministic 2D geometry & manufacturing checks on a .cadlab.json drawing",
+    )
     parser.add_argument("--width", type=float, help="Override width in mm")
     parser.add_argument("--out", type=Path, default=Path("artifacts"))
     args = parser.parse_args()
     try:
+        if args.lint_drawing:
+            if args.lint_drawing.stat().st_size > MAX_DRAWING_BYTES:
+                raise ProjectError("Drawing exceeds the 1 MiB limit.")
+            report = lint_drawing(args.lint_drawing.read_text(encoding="utf-8"))
+            print(json.dumps(report, indent=2))
+            return 0 if report["valid"] else 1
         if args.project:
             if args.project.stat().st_size > MAX_PROJECT_BYTES:
                 raise ProjectError("Project exceeds the 64 KiB limit.")
@@ -49,7 +64,7 @@ def main():
             )
         )
     except (ProjectError, OSError, UnicodeError) as exc:
-        print(f"CAD Lab: {exc}", file=sys.stderr)
+        print(f"Chamfer: {exc}", file=sys.stderr)
         return 2
     return 0
 

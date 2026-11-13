@@ -144,3 +144,41 @@ def test_drawing_lint_endpoint_returns_deterministic_diagnostics(local_server):
     payload = json.loads(body)
     assert payload["valid"] is False
     assert payload["issues"][0]["code"] == "OPEN_CONTOUR_GAP"
+
+
+def test_extrude_rejects_invalid_or_crlf_format_without_header_splitting(local_server):
+    drawing = {
+        "format": "cad-lab.drawing",
+        "schema_version": 1,
+        "units": "mm",
+        "name": "Header Guard",
+        "layers": [{"id": "0", "name": "0", "color": "#abcdef", "visible": True, "locked": False}],
+        "entities": [
+            {
+                "id": "outer",
+                "layer": "0",
+                "type": "polyline",
+                "points": [[0, 0], [40, 0], [40, 30], [0, 30]],
+                "closed": True,
+            }
+        ],
+    }
+    status, headers, _body = request(
+        local_server,
+        "POST",
+        "/api/drawing/extrude",
+        json.dumps({"drawing": drawing, "format": "step\r\nX-Split: 1"}),
+        {"Content-Type": "application/json"},
+    )
+    assert status == 422
+    assert "X-Split" not in headers
+
+    dxf_status, dxf_headers, _dxf_body = request(
+        local_server,
+        "POST",
+        "/api/drawing/dxf",
+        json.dumps(drawing),
+        {"Content-Type": "application/json"},
+    )
+    assert dxf_status == 200
+    assert dxf_headers.get("Content-Disposition") == 'attachment; filename="drawing.dxf"'

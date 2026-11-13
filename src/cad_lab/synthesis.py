@@ -363,12 +363,18 @@ def _format_drc_feedback(lint_report, exec_error=None, spec_errors=None):
     return "\n".join(lines)
 
 
+_UFLOAT = r"[0-9]{1,12}(?:\.[0-9]{1,16})?"
+_SEP = r" ?[:=]? ?"
+
+
 def _normalize_number_words(lowered_text):
+    collapsed = " ".join(lowered_text.split())
     word_pat = "|".join(sorted(WORD_COUNTS, key=len, reverse=True))
     return re.sub(
-        rf"\b({word_pat})\b(?=\s+(?:x\s*|adet\s*)?(?:m\d+\b|corner\b|bolt\b|mounting\b|delik|hole|holes))",
+        rf"\b({word_pat})\b(?= (?:x ?|adet ?)?"
+        r"(?:m[0-9]{1,2}\b|corner\b|bolt\b|mounting\b|delik|hole|holes))",
         lambda m: str(WORD_COUNTS[m.group(1)]),
-        lowered_text,
+        collapsed,
     )
 
 
@@ -378,7 +384,7 @@ def _parse_parametric_spec(spec_text):
     lowered = _normalize_number_words(text.lower())
 
     dims = re.findall(
-        r"(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(mm|cm|m)?",
+        rf"(?<![0-9.])({_UFLOAT}) ?[x×*] ?({_UFLOAT}) ?(?:(mm|cm|m)\b)?",
         lowered,
     )
     scale_map = {"": 1.0, "mm": 1.0, "cm": 10.0, "m": 1000.0}
@@ -390,8 +396,8 @@ def _parse_parametric_spec(spec_text):
         height = round(float(h_raw) * factor, 4)
         explicit_dims = True
     else:
-        w_match = re.search(r"(?:en|genişlik|width|w)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
-        h_match = re.search(r"(?:boy|yükseklik|height|h)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
+        w_match = re.search(rf"(?:en|genişlik|width|w){_SEP}({_UFLOAT})", lowered)
+        h_match = re.search(rf"(?:boy|yükseklik|height|h){_SEP}({_UFLOAT})", lowered)
         width = float(w_match.group(1)) if w_match else 120.0
         height = float(h_match.group(1)) if h_match else 80.0
         explicit_dims = bool(w_match or h_match)
@@ -401,7 +407,7 @@ def _parse_parametric_spec(spec_text):
 
     unsupported_hits = re.findall(
         r"\b(threads?|tapped|kılavuz|kilavuz|countersink|countersunk|havşa|havsa|"
-        r"counterbore|pocket|pockets|blind\s*hole|kör\s*delik|gears?|dişli|disli|"
+        r"counterbore|pocket|pockets|blind ?hole|kör ?delik|gears?|dişli|disli|"
         r"splines?|bends?|büküm|bukum)\b",
         lowered,
     )
@@ -416,16 +422,16 @@ def _parse_parametric_spec(spec_text):
             "yuvarlak flans",
             "boru flanş",
         )
-    ) or ("pcd" in lowered and re.search(r"\bod\s*[:=]?\s*\d", lowered))
+    ) or ("pcd" in lowered and re.search(rf"\bod{_SEP}[0-9]", lowered))
     if is_flange:
-        od_m = re.search(r"(?:\bod|dış\s*çap|dis\s*cap)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
-        id_m = re.search(r"(?:\bid|iç\s*çap|ic\s*cap|bore)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
-        pcd_m = re.search(r"\bpcd\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
+        od_m = re.search(rf"(?:\bod|dış ?çap|dis ?cap){_SEP}({_UFLOAT})", lowered)
+        id_m = re.search(rf"(?:\bid|iç ?çap|ic ?cap|bore){_SEP}({_UFLOAT})", lowered)
+        pcd_m = re.search(rf"\bpcd{_SEP}({_UFLOAT})", lowered)
         od_mm = float(od_m.group(1)) if od_m else 150.0
         id_mm = float(id_m.group(1)) if id_m else round(od_mm * 0.34, 2)
         pcd_mm = float(pcd_m.group(1)) if pcd_m else round((od_mm + id_mm) * 0.5, 2)
         metric_m = re.search(
-            r"(?:(\d+)\s*(?:x|×|adet|\*)?\s*|\b)m(3|4|5|6|8|10|12|14|16)\b",
+            r"(?:(?<![0-9])([0-9]{1,4}) ?(?:x|×|adet|\*)? ?|\b)m(3|4|5|6|8|10|12|14|16)\b",
             lowered,
         )
         if metric_m:
@@ -463,11 +469,11 @@ def _parse_parametric_spec(spec_text):
     is_room = any(tok in lowered for tok in ("oda", "ofis", "room", "kat plan", "floor", "duvar"))
     if is_room:
         wall_match = re.search(
-            r"(?:duvar|wall|et|kalınlık)\s*[:=]?\s*(\d+(?:\.\d+)?)",
+            rf"(?:duvar|wall|et|kalınlık){_SEP}({_UFLOAT})",
             lowered,
         )
         wall_mm = float(wall_match.group(1)) if wall_match else 200.0
-        door_match = re.search(r"(?:kapı|kapi|door)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
+        door_match = re.search(rf"(?:kapı|kapi|door){_SEP}({_UFLOAT})", lowered)
         door_mm = float(door_match.group(1)) if door_match else min(900.0, width * 0.25)
         return {
             "kind": "room",
@@ -481,7 +487,7 @@ def _parse_parametric_spec(spec_text):
 
     # Bolt pattern detection (e.g., "3xM6", "5xM6", "8xM6", "4 adet M8", "4 holes d=6.5")
     metric_match = re.search(
-        r"(?:(\d+)\s*(?:x|×|adet|\*)?\s*|\b)m(3|4|5|6|8|10|12|14|16)\b",
+        r"(?:(?<![0-9])([0-9]{1,4}) ?(?:x|×|adet|\*)? ?|\b)m(3|4|5|6|8|10|12|14|16)\b",
         lowered,
     )
     hole_count = 0
@@ -496,8 +502,9 @@ def _parse_parametric_spec(spec_text):
         explicit_hole_dia = True
     else:
         generic_holes = re.search(
-            r"(\d+)\s*(?:adet\s*)?(?:(?:corner|bolt|mounting)\s+)?(?:delik|hole|holes)"
-            r"(?:\s*(?:çap|cap|d|ø)\s*[:=]?\s*(\d+(?:\.\d+)?))?",
+            r"(?<![0-9])([0-9]{1,4}) ?(?:adet )?(?:(?:corner|bolt|mounting) )?"
+            r"(?:delik|hole|holes)"
+            rf"(?: ?(?:çap|cap|d|ø){_SEP}({_UFLOAT}))?",
             lowered,
         )
         if generic_holes:
@@ -513,8 +520,8 @@ def _parse_parametric_spec(spec_text):
         raise ProjectError("Parametric bolt count exceeds 64 holes.")
 
     inset_match = re.search(
-        r"(?:kenardan|kenar|pay|inset|margin|offset\s*in)\s*[:=]?\s*(\d+(?:\.\d+)?)"
-        r"|(?:kenardan|inset|margin)\s+(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:pay)?",
+        rf"(?:kenardan|kenar|pay|inset|margin|offset ?in){_SEP}({_UFLOAT})"
+        rf"|(?:kenardan|inset|margin) ({_UFLOAT}) ?(?:mm)? ?(?:pay)?",
         lowered,
     )
     if inset_match:
@@ -527,8 +534,8 @@ def _parse_parametric_spec(spec_text):
     # Slot detection
     slot = None
     slot_match = re.search(
-        r"(?:(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:kanal|slot|yuva)|"
-        r"(?:kanal|slot|yuva)\s*[:=]?\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?))",
+        rf"(?:(?<![0-9.])({_UFLOAT}) ?[x×*] ?({_UFLOAT}) ?(?:mm ?)?(?:kanal|slot|yuva)|"
+        rf"(?:kanal|slot|yuva){_SEP}({_UFLOAT}) ?[x×*] ?({_UFLOAT}))",
         lowered,
     )
     if slot_match:
@@ -542,7 +549,7 @@ def _parse_parametric_spec(spec_text):
     center_bore = None
     explicit_bore_dia = False
     bore_match = re.search(
-        r"(?:merkez|orta|center|bore)[^0-9]{0,18}(\d+(?:\.\d+)?)",
+        rf"(?:merkez|orta|center|bore)[^0-9]{{0,18}}({_UFLOAT})",
         lowered,
     )
     if bore_match and slot is None:
@@ -557,11 +564,11 @@ def _parse_parametric_spec(spec_text):
     # Flange / outer offset detection
     flange_mm = None
     flange_after = re.search(
-        r"(?:flanş|flans|flange|dış\s*ofset|outward\s*offset)\s*[:=]?\s*(\d+(?:\.\d+)?)",
+        rf"(?:flanş|flans|flange|dış ?ofset|outward ?offset){_SEP}({_UFLOAT})",
         lowered,
     )
     flange_before = re.search(
-        r"(?<![a-z0-9.])(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:flanş|flans|flange)\b(?!\s*[:=]?\s*\d)",
+        rf"(?<![a-z0-9.])({_UFLOAT}) ?(?:mm ?)?(?:flanş|flans|flange)\b(?!{_SEP}[0-9])",
         lowered,
     )
     if flange_after:
@@ -570,9 +577,9 @@ def _parse_parametric_spec(spec_text):
         flange_mm = float(flange_before.group(1))
 
     chamfer_mm = None
-    chamfer_after = re.search(r"(?:pah|chamfer)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
+    chamfer_after = re.search(rf"(?:pah|chamfer){_SEP}({_UFLOAT})", lowered)
     chamfer_before = re.search(
-        r"(?<![a-z0-9.])(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:pah|pahlı|chamfer)\b(?!\s*[:=]?\s*\d)",
+        rf"(?<![a-z0-9.])({_UFLOAT}) ?(?:mm ?)?(?:pah|pahlı|chamfer)\b(?!{_SEP}[0-9])",
         lowered,
     )
     if chamfer_after:
@@ -581,9 +588,10 @@ def _parse_parametric_spec(spec_text):
         chamfer_mm = float(chamfer_before.group(1))
 
     fillet_mm = None
-    fillet_after = re.search(r"(?:radyüs|radyus|fillet)\s*[:=]?\s*(\d+(?:\.\d+)?)", lowered)
+    fillet_after = re.search(rf"(?:radyüs|radyus|fillet){_SEP}({_UFLOAT})", lowered)
     fillet_before = re.search(
-        r"(?<![a-z0-9.])(\d+(?:\.\d+)?)\s*(?:mm\s*)?(?:köşe\s*radyüs|radyüs|radyus|fillet)\b(?!\s*[:=]?\s*\d)",
+        rf"(?<![a-z0-9.])({_UFLOAT}) ?(?:mm ?)?"
+        rf"(?:köşe ?radyüs|radyüs|radyus|fillet)\b(?!{_SEP}[0-9])",
         lowered,
     )
     if chamfer_mm is None:

@@ -70,6 +70,16 @@ class LocalCADServer(ThreadingHTTPServer):
         return {f"127.0.0.1:{self.server_port}", f"localhost:{self.server_port}"}
 
 
+EXTRUDE_EXPORT_FILENAMES = {
+    "step": "part.step",
+    "stl": "part.stl",
+}
+PLATE_EXPORT_FORMATS = {
+    "/api/export/step": ("step", "plate.step"),
+    "/api/export/stl": ("stl", "plate.stl"),
+}
+
+
 class CADHandler(BaseHTTPRequestHandler):
     server_version = "Chamfer"
 
@@ -93,7 +103,10 @@ class CADHandler(BaseHTTPRequestHandler):
             ),
         )
         if filename:
-            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            safe_filename = (
+                str(filename).replace("\r", "").replace("\n", "").replace('"', "").replace(";", "")
+            )
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_filename}"')
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(payload)
@@ -260,6 +273,8 @@ class CADHandler(BaseHTTPRequestHandler):
                     raise ProjectError("Extrude payload requires 'drawing'.")
                 thickness = float(payload.get("thickness", 5.0))
                 fmt = str(payload.get("format", "step")).lower().strip()
+                if fmt not in {"mesh", "step", "stl"}:
+                    raise ProjectError("Extrude format must be 'mesh', 'step', or 'stl'.")
                 if not self.server.geometry_slots.acquire(timeout=5.0):
                     self._json(429, {"error": "Geometry kernel queue is busy; retry shortly."})
                     return
@@ -279,7 +294,12 @@ class CADHandler(BaseHTTPRequestHandler):
                 if fmt == "mesh":
                     self._json(200, mesh_payload)
                 else:
-                    self._send(200, out_bytes, "application/octet-stream", f"part.{fmt}")
+                    self._send(
+                        200,
+                        out_bytes,
+                        "application/octet-stream",
+                        EXTRUDE_EXPORT_FILENAMES[fmt],
+                    )
                 return
             if route == "/api/drawing/lint":
                 self._json(200, lint_drawing(raw.decode("utf-8")))
@@ -414,9 +434,9 @@ class CADHandler(BaseHTTPRequestHandler):
                     if route == "/api/model":
                         result = {"project": project.to_dict(), "mesh": mesh_data(part)}
                     else:
-                        file_format = route.rsplit("/", 1)[1]
+                        file_format, export_filename = PLATE_EXPORT_FORMATS[route]
                         with tempfile.TemporaryDirectory(prefix="cadlab-") as directory:
-                            path = Path(directory) / f"plate.{file_format}"
+                            path = Path(directory) / export_filename
                             export_part(part, path, file_format)
                             payload = path.read_bytes()
             finally:
@@ -424,7 +444,7 @@ class CADHandler(BaseHTTPRequestHandler):
             if route == "/api/model":
                 self._json(200, result)
                 return
-            self._send(200, payload, "application/octet-stream", f"plate.{file_format}")
+            self._send(200, payload, "application/octet-stream", export_filename)
         except RevisionConflictError as exc:
             self._json(
                 409,

@@ -333,3 +333,13 @@ export const PRESET_BUILDERS = {
   rack1u: buildEia1uRackPanelBlueprint,
   fault: flawedCncBracketExample,
 };
+
+const PRESET_BUILDER_MAP = new Map(Object.entries(PRESET_BUILDERS));
+
+export function getPresetBuilder(key) {
+  if (typeof key !== 'string' || !PRESET_BUILDER_MAP.has(key)) {
+    return null;
+  }
+  const builder = PRESET_BUILDER_MAP.get(key);
+  return typeof builder === 'function' ? builder : null;
+}

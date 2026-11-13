@@ -9,6 +9,7 @@ import {
   snapPoint,
   validateDrawing,
 } from '../src/drawing/model.js';
+import { getPresetBuilder } from '../src/drawing/presets.js';
 
 test('the original layered office example is editable with exact millimeter bounds', () => {
   const source = JSON.parse(
@@ -159,4 +160,25 @@ test('a restored drawing chooses its first valid layer even when its id is not 0
   const store = new DrawingStore(drawing);
   store.add({ type: 'circle', center: [0, 0], radius: 5 });
   assert.equal(store.document.entities[0].layer, 'custom-layer');
+});
+
+test('preset lookup only dispatches known preset builders and rejects prototype keys', () => {
+  const buildFault = getPresetBuilder('fault');
+  const buildFlange = getPresetBuilder('dn50');
+  assert.equal(typeof buildFault, 'function');
+  assert.equal(typeof buildFlange, 'function');
+  assert.ok(buildFault().entities.length > 0);
+  assert.ok(buildFlange().entities.length > 0);
+
+  for (const key of [
+    'toString',
+    'constructor',
+    '__proto__',
+    'valueOf',
+    'unknown',
+    null,
+    undefined,
+  ]) {
+    assert.equal(getPresetBuilder(key), null);
+  }
 });

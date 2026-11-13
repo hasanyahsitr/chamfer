@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 from cad_lab.commands import DrawingSession
 from cad_lab.drawing import drawing_to_dxf
 from cad_lab.server import LocalCADServer
-from cad_lab.synthesis import discover_runtimes, synthesize_drawing
+from cad_lab.synthesis import _parse_parametric_spec, discover_runtimes, synthesize_drawing
 
 
 class _FakeOllamaHandler(BaseHTTPRequestHandler):
@@ -244,3 +245,27 @@ def test_server_runtime_and_synthesize_http_endpoints(tmp_path: Path):
             assert len(out["drawing"]["entities"]) >= 9
         finally:
             srv.shutdown()
+
+
+def test_parametric_parser_linear_time_on_adversarial_repetitions():
+    adversarial_inputs = [
+        "9" * 1950,
+        "w" + " " * 1950 + "!",
+        "9holed" + " " * 1900 + "!",
+        "slot" + " " * 1950 + "!",
+        "flanş" + " " * 1900 + "!",
+        "radyüs" + " " * 1900 + "!",
+    ]
+    start = time.monotonic()
+    for text in adversarial_inputs:
+        parsed = _parse_parametric_spec(text)
+        assert parsed["kind"] == "plate"
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.25
+
+    normal = _parse_parametric_spec("100 x 60 mm plaka, 4 adet M6, kenardan 10mm pay, pah: 5")
+    assert normal["width"] == 100.0
+    assert normal["height"] == 60.0
+    assert normal["hole_count"] == 4
+    assert normal["inset_mm"] == 10.0
+    assert normal["chamfer_mm"] == 5.0

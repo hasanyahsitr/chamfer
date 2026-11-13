@@ -24,7 +24,7 @@ import { exportDrawingToSvgBlueprint } from './svg.js';
 import { entitiesInBox } from './selection.js';
 import { gridSpacing } from './grid.js';
 import { STRINGS } from './i18n.js';
-import { PRESET_BUILDERS } from './presets.js';
+import { getPresetBuilder } from './presets.js';
 import { createSolidViewer } from './solid_viewer.js';
 
 const $ = (id) => document.getElementById(id),
@@ -1676,13 +1676,14 @@ $('new-drawing').addEventListener('click', () => {
 $('preset-select').addEventListener('change', (event) => {
   const key = event.target.value;
   event.target.value = '';
-  if (!key || !PRESET_BUILDERS[key]) return;
+  const buildPreset = getPresetBuilder(key);
+  if (!buildPreset) return;
   if (store.document.entities.length && saved !== JSON.stringify(store.document)) {
     log(t().clearBeforeSample, true);
     return;
   }
   engine.cancel();
-  const doc = PRESET_BUILDERS[key]();
+  const doc = buildPreset();
   store.commit(doc);
   saved = JSON.stringify(store.document);
   render();
@@ -1901,14 +1902,15 @@ window.addEventListener('beforeunload', (event) => {
 new ResizeObserver(() => renderGeometry()).observe(canvas);
 log(t().bootLog);
 const bootPreset = new URLSearchParams(window.location.search).get('preset');
-if (bootPreset && PRESET_BUILDERS[bootPreset]) {
-  const doc = PRESET_BUILDERS[bootPreset]();
+const buildBootPreset = getPresetBuilder(bootPreset);
+if (buildBootPreset) {
+  const doc = buildBootPreset();
   store.commit(doc);
   saved = JSON.stringify(store.document);
 }
 render();
 fit();
-if (bootPreset && PRESET_BUILDERS[bootPreset]) {
+if (buildBootPreset) {
   if (bootPreset === 'fault') {
     log(t().drcLoadedLog(lintReport.summary.errors, lintReport.summary.warnings), true);
   } else {

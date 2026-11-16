@@ -11,6 +11,8 @@ and commercial freedom without mandatory cloud subscriptions.
 
 Live zero-install browser workbench: **[Open 2D CAD](https://hasanyahsitr.github.io/chamfer/)** · **[Interactive DRC Repair Demo (`?preset=fault`)](https://hasanyahsitr.github.io/chamfer/?preset=fault)**
 
+![Chamfer 13-second walkthrough: analytical DRC detection, emerald coordinate-diff preview, one-click deterministic repair, and Open CASCADE 3D STEP extrusion](docs/assets/chamfer-demo.gif)
+
 Implemented in `0.3.0a1`:
 - **Zero-Install Browser Workbench & Local Python Bridge:** The static bundle in `web/dist`
   opens directly into the 2D millimeter CAD workbench at `/` (and `/?preset=fault`) on any

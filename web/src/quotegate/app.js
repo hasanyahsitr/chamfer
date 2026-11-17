@@ -117,6 +117,10 @@ const I18N = {
 function parseEmbedConfig() {
   const params = new URLSearchParams(window.location.search);
   const isEmbed = params.get('embed') === '1';
+  const rawLang = (params.get('lang') || '').toLowerCase();
+  const urlLang = rawLang === 'en' || rawLang === 'tr' ? rawLang : null;
+  const rawCur = (params.get('cur') || '').toUpperCase();
+  const urlCurrency = ['TRY', 'USD', 'EUR'].includes(rawCur) ? rawCur : null;
   const paramKeys = [
     'shop',
     'wa',
@@ -135,7 +139,7 @@ function parseEmbedConfig() {
   ];
   const hasUrlOverrides = isEmbed || paramKeys.some((k) => params.has(k));
   if (!hasUrlOverrides) {
-    return { isEmbed: false, urlTariff: null };
+    return { isEmbed: false, urlTariff: null, urlLang, urlCurrency };
   }
   const urlTariff = sanitizeTariff({
     shopName: params.get('shop') ?? DEFAULT_TARIFF.shopName,
@@ -155,7 +159,7 @@ function parseEmbedConfig() {
       galvanized: params.get('galv'),
     },
   });
-  return { isEmbed, urlTariff };
+  return { isEmbed, urlTariff, urlLang, urlCurrency };
 }
 
 function escapeHtmlAttr(str) {
@@ -170,6 +174,8 @@ function buildEmbedIframeCode(tariff) {
   const u = new URL(window.location.href.split('#')[0]);
   u.search = '';
   u.searchParams.set('embed', '1');
+  u.searchParams.set('lang', state.lang);
+  u.searchParams.set('cur', state.currency);
   u.searchParams.set('shop', tariff.shopName);
   if (tariff.whatsappPhone) u.searchParams.set('wa', tariff.whatsappPhone);
   u.searchParams.set('cut', String(tariff.cutRateTryPerMeter));
@@ -342,14 +348,14 @@ const els = {
   btnResetTariff: document.getElementById('btn-reset-tariff'),
 };
 
-const { isEmbed, urlTariff } = parseEmbedConfig();
+const { isEmbed, urlTariff, urlLang, urlCurrency } = parseEmbedConfig();
 if (isEmbed) {
   if (els.btnOpenTariff) els.btnOpenTariff.hidden = true;
   if (els.linkCad) els.linkCad.hidden = true;
 }
 
 const state = {
-  lang: 'tr',
+  lang: urlLang || 'tr',
   isEmbed,
   fileName: '',
   intakeReport: null,
@@ -357,10 +363,11 @@ const state = {
   tariff: urlTariff || loadSavedTariff(),
   materialId: 'steel_s235',
   thicknessMm: 2.0,
-  currency: 'TRY',
+  currency: urlCurrency || 'TRY',
   express: false,
   lastQuote: null,
 };
+if (els.selCurrency) els.selCurrency.value = state.currency;
 
 function fmtMoney(val, sym) {
   return `${sym}${Number(val || 0).toLocaleString(state.lang === 'tr' ? 'tr-TR' : 'en-US', {
@@ -383,7 +390,13 @@ function populateMaterialOptions() {
 
 function applyLanguage() {
   const t = I18N[state.lang];
-  els.shopName.textContent = state.tariff.shopName || DEFAULT_TARIFF.shopName;
+  document.documentElement.lang = state.lang;
+  const brand = state.tariff.shopName || DEFAULT_TARIFF.shopName;
+  document.title =
+    state.lang === 'en'
+      ? `${brand} — Instant Laser & CNC Quote`
+      : `${brand} — Anında Lazer & CNC Fiyat Teklifi`;
+  els.shopName.textContent = brand;
   els.subtitle.textContent = t.subtitle;
   els.linkCad.textContent = t.cadLink;
   els.btnOpenTariff.textContent = t.openTariff;

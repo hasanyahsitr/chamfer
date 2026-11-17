@@ -96,13 +96,30 @@ TOOLS = [
         "name": "chamfer_lint",
         "description": (
             "Run deterministic 2D geometry and CNC/manufacturing checks (open contour gaps, "
-            "self-intersections, duplicate cuts, hole-edge collisions, thin webs, stray holes)."
+            "self-intersections, duplicate cuts, hole-edge collisions, thin webs, stray holes). "
+            "When thickness_mm is supplied without min_clearance_mm, default web clearance "
+            "scales automatically to max(1.5, thickness_mm)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "max_gap_mm": {"type": "number", "default": 2.0, "minimum": 0},
-                "min_clearance_mm": {"type": "number", "default": 1.5, "minimum": 0},
+                "min_clearance_mm": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": (
+                        "Minimum web/edge clearance in mm. When omitted, defaults to "
+                        "max(1.5, thickness_mm) if thickness_mm is provided, else 1.5."
+                    ),
+                },
+                "thickness_mm": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": (
+                        "Optional sheet thickness in mm; sets default min_clearance_mm "
+                        "to max(1.5, thickness_mm)."
+                    ),
+                },
                 "min_segment_mm": {"type": "number", "default": 0.5, "minimum": 0},
                 "manufacturing": {"type": "boolean", "default": False},
             },
@@ -345,10 +362,13 @@ class ChamferMCPBridge:
 
         if name == "chamfer_lint":
             state = self._current_state()
+            min_clear = args.get("min_clearance_mm")
+            thickness = args.get("thickness_mm")
             return lint_drawing(
                 state["drawing"],
                 max_gap_mm=float(args.get("max_gap_mm", 2.0)),
-                min_clearance_mm=float(args.get("min_clearance_mm", 1.5)),
+                min_clearance_mm=float(min_clear) if min_clear is not None else None,
+                thickness_mm=float(thickness) if thickness is not None else None,
                 min_segment_mm=float(args.get("min_segment_mm", 0.5)),
                 manufacturing=bool(args.get("manufacturing", False)),
             )

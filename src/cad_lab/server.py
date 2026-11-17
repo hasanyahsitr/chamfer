@@ -8,7 +8,7 @@ import threading
 from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from cad_lab.commands import DrawingSession
 from cad_lab.drawing import MAX_DRAWING_BYTES, drawing_from_dxf, drawing_to_dxf
@@ -28,6 +28,25 @@ from cad_lab.synthesis import discover_runtimes, synthesize_drawing
 def _parse_bounded_json(text):
     check_json_depth(text)
     return json.loads(text)
+
+
+def _parse_optional_float(value, field_name):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ProjectError(f"{field_name} must be a valid number.")
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ProjectError(f"{field_name} must be a valid number.") from exc
+
+
+def _parse_bool_flag(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes"}
+    return False
 
 
 class RevisionConflictError(Exception):
@@ -248,9 +267,17 @@ class CADHandler(BaseHTTPRequestHandler):
                 )
                 return
             if route == "/api/drawing/svg":
+                query_params = parse_qs(urlsplit(self.path).query)
+                thickness = _parse_optional_float(
+                    (query_params.get("thickness") or query_params.get("thickness_mm") or [None])[
+                        0
+                    ],
+                    "thickness_mm",
+                )
+                svg_kwargs = {"thickness_mm": thickness} if thickness is not None else {}
                 self._send(
                     200,
-                    drawing_to_svg_blueprint(raw.decode("utf-8")),
+                    drawing_to_svg_blueprint(raw.decode("utf-8"), **svg_kwargs),
                     "image/svg+xml; charset=utf-8",
                     "blueprint.svg",
                 )
@@ -302,7 +329,42 @@ class CADHandler(BaseHTTPRequestHandler):
                     )
                 return
             if route == "/api/drawing/lint":
-                self._json(200, lint_drawing(raw.decode("utf-8")))
+                try:
+                    payload = _parse_bounded_json(raw.decode("utf-8"))
+                except (ValueError, RecursionError) as exc:
+                    raise ProjectError("Invalid lint request payload.") from exc
+                if not isinstance(payload, dict):
+                    raise ProjectError("Lint payload must be a JSON object.")
+                query_params = parse_qs(urlsplit(self.path).query)
+                has_wrapper = "drawing" in payload
+                doc = payload["drawing"] if has_wrapper else payload
+                raw_min_clear = (
+                    payload.get("min_clearance_mm")
+                    if has_wrapper and payload.get("min_clearance_mm") is not None
+                    else (query_params.get("min_clearance_mm") or [None])[0]
+                )
+                raw_thick = (
+                    payload.get("thickness_mm", payload.get("thickness"))
+                    if has_wrapper
+                    and payload.get("thickness_mm", payload.get("thickness")) is not None
+                    else (
+                        query_params.get("thickness_mm") or query_params.get("thickness") or [None]
+                    )[0]
+                )
+                mfg = (
+                    bool(payload.get("manufacturing", False))
+                    if has_wrapper and "manufacturing" in payload
+                    else _parse_bool_flag((query_params.get("manufacturing") or [None])[0])
+                )
+                self._json(
+                    200,
+                    lint_drawing(
+                        doc,
+                        min_clearance_mm=_parse_optional_float(raw_min_clear, "min_clearance_mm"),
+                        thickness_mm=_parse_optional_float(raw_thick, "thickness_mm"),
+                        manufacturing=mfg,
+                    ),
+                )
                 return
             if route == "/api/drawing/state":
                 try:

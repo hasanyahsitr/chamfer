@@ -62,12 +62,13 @@ const CREATION_TOOLS = new Set([
 ]);
 
 export class CommandEngine {
-  constructor(store, changed, log, fit, onLint = null) {
+  constructor(store, changed, log, fit, onLint = null, getLintOptions = null) {
     this.store = store;
     this.changed = changed;
     this.log = log;
     this.fit = fit;
     this.onLint = onLint;
+    this.getLintOptions = getLintOptions;
     this.tool = null;
     this.points = [];
     this.lastTool = 'LINE';
@@ -256,10 +257,19 @@ export class CommandEngine {
     }
     if (command === 'LINT') {
       this.cancel();
-      const report = lintDrawing(this.store.document);
+      const opts = { ...(this.getLintOptions ? this.getLintOptions() : {}) };
+      if (tokens.length >= 2) {
+        const rawTok = tokens[1].toLowerCase().startsWith('t=') ? tokens[1].slice(2) : tokens[1];
+        const tVal = parseScalar(rawTok);
+        if (!(tVal > 0)) {
+          throw new Error('LINT sheet thickness (mm) must be > 0.');
+        }
+        opts.thicknessMm = tVal;
+      }
+      const report = lintDrawing(this.store.document, opts);
       this.onLint?.(report);
       this.log(
-        `LINT · ${report.summary.errors} error(s), ${report.summary.warnings} warning(s) (${report.summary.checked_entities} entities).`,
+        `LINT · ${report.summary.errors} error(s), ${report.summary.warnings} warning(s) (${report.summary.checked_entities} entities, clearance >= ${report.min_clearance_mm.toFixed(2)} mm).`,
         report.summary.errors > 0,
       );
       this.changed();

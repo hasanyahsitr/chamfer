@@ -338,3 +338,25 @@ def test_arc_offset_and_dim_commands_and_dxf_round_trip(tmp_path):
     types = [e["type"] for e in reimported["drawing"]["entities"]]
     assert types.count("arc") == 2
     assert types.count("dim") == 1
+
+
+def test_chamfer_lint_scales_default_clearance_with_thickness():
+    bridge = ChamferMCPBridge(port=0)
+    bridge.call_tool(
+        "chamfer_execute",
+        {
+            "commands": [
+                "NEW 6MM-PLATE",
+                "RECTANG 0,0 80,50 id=outer",
+                "CIRCLE 15,25 3 id=h1",
+                "CIRCLE 23,25 3 id=h2",
+            ]
+        },
+    )
+    default_rep = bridge.call_tool("chamfer_lint", {})
+    assert default_rep["min_clearance_mm"] == 1.5
+    assert default_rep["summary"]["warnings"] == 0
+
+    thick_rep = bridge.call_tool("chamfer_lint", {"thickness_mm": 6.0})
+    assert thick_rep["min_clearance_mm"] == 6.0
+    assert [i["code"] for i in thick_rep["issues"]] == ["MIN_CLEARANCE"]

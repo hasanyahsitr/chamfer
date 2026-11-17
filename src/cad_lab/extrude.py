@@ -285,7 +285,7 @@ def export_extruded_drawing(drawing_or_json, thickness_mm=5.0, file_format="step
 def drawing_to_svg_blueprint(drawing_or_json, thickness_mm=3.0, manufacturing=True):
     """Render an ISO-styled cleanroom vector SVG engineering blueprint with title block."""
     data = _load_validated_drawing(drawing_or_json)
-    lint = lint_drawing(data, manufacturing=manufacturing)
+    lint = lint_drawing(data, thickness_mm=thickness_mm, manufacturing=manufacturing)
     cam = compute_cam_metrics(data, thickness_mm=thickness_mm)
 
     visible_layers = {layer["id"]: layer for layer in data["layers"] if layer.get("visible", True)}

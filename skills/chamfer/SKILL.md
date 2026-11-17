@@ -39,7 +39,7 @@ Always inspect current state with `chamfer_get_drawing` before modifying an exis
 
 Before exporting any manufacturing file, verify geometry deterministically:
 
-1. Run `chamfer_lint` with `manufacturing: true` (defaults: `min_clearance_mm: 1.5`, `max_gap_mm: 2.0`, `min_segment_mm: 0.5`).
+1. Run `chamfer_lint` with `manufacturing: true` (and `thickness_mm` when known so default `min_clearance_mm` automatically scales to `max(1.5, thickness_mm)`; other defaults: `max_gap_mm: 2.0`, `min_segment_mm: 0.5`).
 2. Confirm:
    - `valid == true`
    - Zero open contour gaps, zero self-intersections, zero duplicate cuts, and zero hole-edge or cross-layer collisions.

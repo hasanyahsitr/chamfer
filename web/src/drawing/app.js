@@ -18,7 +18,7 @@ import {
   validateDrawing,
 } from './model.js';
 import { CommandEngine } from './commands.js';
-import { lintDrawing, previewDrcFix } from './linter.js';
+import { lintDrawing, previewDrcFix, resolveMinClearanceMm } from './linter.js';
 import { exportDrawingToDxf, importDrawingFromDxf } from './dxf.js';
 import { exportDrawingToSvgBlueprint } from './svg.js';
 import { entitiesInBox } from './selection.js';
@@ -49,13 +49,36 @@ let worldCursor = null,
   runtimeCatalog = [],
   lastExternalRuntimeId = null,
   repairGhost = null,
+  pinnedRepair = null,
   currentBatchRepair = null;
+
+function getActiveThicknessMm() {
+  const sheetVal = Number($('sheet-thickness')?.value);
+  const modalVal = Number($('extrude-thickness')?.value);
+  const raw = Number.isFinite(sheetVal) && sheetVal > 0 ? sheetVal : modalVal;
+  return Number.isFinite(raw) && raw > 0 ? Math.max(0.2, Math.min(500, raw)) : 3.0;
+}
+
+function setActiveThicknessMm(value) {
+  const clamped = Math.max(0.2, Math.min(500, Number(value) || 3.0));
+  const formatted = String(Number(clamped.toFixed(2)));
+  if ($('sheet-thickness')) $('sheet-thickness').value = formatted;
+  if ($('extrude-thickness')) $('extrude-thickness').value = formatted;
+  return clamped;
+}
 
 const canvas = $('drawing-canvas');
 const solidViewer = createSolidViewer($('extrude-canvas'));
-const engine = new CommandEngine(store, render, log, fit, (report) => {
-  lintReport = report;
-});
+const engine = new CommandEngine(
+  store,
+  render,
+  log,
+  fit,
+  (report) => {
+    lintReport = report;
+  },
+  () => ({ thicknessMm: getActiveThicknessMm() }),
+);
 
 const t = () => STRINGS[lang];
 
@@ -607,14 +630,14 @@ function makeRequestId() {
   return `req-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function setRepairGhost(ghost) {
+function setRepairGhost(ghost, { pinned = false } = {}) {
   repairGhost = ghost;
   const banner = $('lint-diff-banner');
   if (banner) {
     if (ghost && ghost.diffSummary) {
       banner.replaceChildren();
       const label = document.createElement('strong');
-      label.textContent = t().fixPreviewLabel;
+      label.textContent = pinned ? t().previewPinnedLabel : t().fixPreviewLabel;
       const body = document.createElement('span');
       body.textContent = ghost.diffSummary;
       banner.append(label, body);
@@ -627,15 +650,57 @@ function setRepairGhost(ghost) {
   renderGeometry();
 }
 
-function computeBatchRepairs(doc) {
+function syncPreviewButtonsState() {
+  const activeKey = pinnedRepair?.key || null;
+  const s = t();
+  const previewAllBtn = $('preview-all-drc');
+  if (previewAllBtn) {
+    previewAllBtn.setAttribute('aria-pressed', String(activeKey === 'ALL'));
+  }
+  const fixAllBtn = $('fix-all-drc');
+  if (fixAllBtn && currentBatchRepair) {
+    fixAllBtn.textContent =
+      activeKey === 'ALL'
+        ? s.applyAllBtn(currentBatchRepair.applied.length)
+        : s.fixAllBtn(currentBatchRepair.applied.length);
+  }
+  for (const btn of document.querySelectorAll('.lint-preview-btn')) {
+    btn.setAttribute('aria-pressed', String(btn.dataset.previewIssue === activeKey));
+  }
+  for (const btn of document.querySelectorAll('.lint-fix-btn')) {
+    btn.textContent = btn.dataset.fixTarget === activeKey ? s.applyBtn : s.fixBtn;
+  }
+}
+
+function togglePinnedRepair(key, ghost) {
+  if (!ghost) return;
+  if (pinnedRepair?.key === key) {
+    pinnedRepair = null;
+    setRepairGhost(null);
+  } else {
+    pinnedRepair = { key, ghost };
+    setRepairGhost(ghost, { pinned: true });
+  }
+  syncPreviewButtonsState();
+}
+
+function restorePinnedOrClearGhost() {
+  if (pinnedRepair?.ghost) {
+    setRepairGhost(pinnedRepair.ghost, { pinned: true });
+  } else {
+    setRepairGhost(null);
+  }
+}
+
+function computeBatchRepairs(doc, thicknessMm) {
   let working = structuredClone(doc);
   const applied = [];
   const previewEntities = [];
   for (let step = 0; step < 16; step++) {
-    const report = lintDrawing(working);
+    const report = lintDrawing(working, { thicknessMm });
     let fixedOne = false;
     for (const issue of report.issues) {
-      const fix = previewDrcFix(working, issue);
+      const fix = previewDrcFix(working, issue, { thicknessMm });
       if (fix) {
         working = fix.nextDoc;
         applied.push({ code: issue.code, diffSummary: fix.diffSummary });
@@ -1087,6 +1152,7 @@ function applyLocaleLabels() {
   $('empty-hint').textContent = s.emptyHint;
   $('sec-props').textContent = s.secProps;
   $('sec-cam').textContent = s.secCam;
+  if ($('lbl-sheet-thickness')) $('lbl-sheet-thickness').textContent = s.sheetThickness;
   $('sec-drc').textContent = s.secDrc;
   $('sec-layers').textContent = s.secLayers;
   $('layer-name').placeholder = s.newLayerPh;
@@ -1132,7 +1198,8 @@ function lockSvg(locked) {
 
 function renderCamTelemetry() {
   const s = t();
-  const thickness = Math.max(0.2, Number($('extrude-thickness')?.value) || 4.0);
+  const thickness = getActiveThicknessMm();
+  const minWeb = resolveMinClearanceMm({ thicknessMm: thickness });
   const cam = computeCamMetrics(store.document, thickness);
   const camDl = $('cam-properties');
   camDl.replaceChildren();
@@ -1144,6 +1211,7 @@ function renderCamTelemetry() {
       s.camMass(thickness),
       `${cam.mass_al6061_g.toFixed(1)}g Al · ${cam.mass_steel_s235_g.toFixed(1)}g Fe`,
     ],
+    [s.camMinWeb, `${minWeb.toFixed(2)} mm${thickness >= 1.5 ? ' (1×t)' : ' (min)'}`],
   ];
   for (const [k, v] of rows) {
     const dt = document.createElement('dt'),
@@ -1156,6 +1224,7 @@ function renderCamTelemetry() {
 
 function render() {
   const s = t();
+  pinnedRepair = null;
   repairGhost = null;
   const diffBanner = $('lint-diff-banner');
   if (diffBanner) {
@@ -1163,13 +1232,15 @@ function render() {
     diffBanner.replaceChildren();
   }
   applyLocaleLabels();
-  lintReport = lintDrawing(store.document);
+  const activeThickness = getActiveThicknessMm();
+  lintReport = lintDrawing(store.document, { thicknessMm: activeThickness });
   pushWorkspaceState();
   renderGeometry();
   renderCamTelemetry();
 
   const summaryEl = $('lint-summary');
   const listEl = $('lint-list');
+  const previewAllBtn = $('preview-all-drc');
   const fixAllBtn = $('fix-all-drc');
   summaryEl.className = `lint-badge ${lintReport.status === 'passed' ? 'clean' : lintReport.status}`;
   if (!store.document.entities.length) {
@@ -1182,7 +1253,18 @@ function render() {
     summaryEl.textContent = s.drcFail(lintReport.summary.errors, lintReport.summary.warnings);
   }
 
-  currentBatchRepair = lintReport.issues.length ? computeBatchRepairs(store.document) : null;
+  currentBatchRepair = lintReport.issues.length
+    ? computeBatchRepairs(store.document, activeThickness)
+    : null;
+  if (previewAllBtn) {
+    if (currentBatchRepair) {
+      previewAllBtn.textContent = s.previewAllBtn;
+      previewAllBtn.setAttribute('aria-pressed', 'false');
+      previewAllBtn.hidden = false;
+    } else {
+      previewAllBtn.hidden = true;
+    }
+  }
   if (fixAllBtn) {
     if (currentBatchRepair) {
       fixAllBtn.textContent = s.fixAllBtn(currentBatchRepair.applied.length);
@@ -1197,6 +1279,8 @@ function render() {
     const card = document.createElement('div');
     card.className = `lint-card ${issue.severity}`;
 
+    const fix = previewDrcFix(store.document, issue, { thicknessMm: activeThickness });
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'lint-item';
@@ -1204,6 +1288,12 @@ function render() {
     const hint = document.createElement('small');
     hint.textContent = `@(${issue.point[0]}, ${issue.point[1]}) · ${issue.fix_hint}`;
     btn.append(hint);
+    if (fix?.diffSummary) {
+      const shiftLine = document.createElement('span');
+      shiftLine.className = 'lint-shift-note';
+      shiftLine.textContent = `↳ ${fix.diffSummary}`;
+      btn.append(shiftLine);
+    }
     btn.addEventListener('click', () => {
       store.selection.clear();
       for (const id of issue.entities) store.selection.add(id);
@@ -1212,17 +1302,33 @@ function render() {
     });
     card.append(btn);
 
-    const fix = previewDrcFix(store.document, issue);
     if (fix) {
+      const actions = document.createElement('div');
+      actions.className = 'lint-actions';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.className = 'lint-preview-btn';
+      prevBtn.dataset.previewIssue = issue.id;
+      prevBtn.setAttribute('aria-pressed', 'false');
+      prevBtn.textContent = s.previewBtn;
+      prevBtn.addEventListener('click', () => {
+        if (pinnedRepair?.key !== issue.id) {
+          view.center = [...issue.point];
+        }
+        togglePinnedRepair(issue.id, fix);
+      });
+
       const fixBtn = document.createElement('button');
       fixBtn.type = 'button';
       fixBtn.className = 'lint-fix-btn';
       fixBtn.dataset.fixIssue = issue.code;
+      fixBtn.dataset.fixTarget = issue.id;
       fixBtn.textContent = s.fixBtn;
       fixBtn.addEventListener('pointerenter', () => setRepairGhost(fix));
       fixBtn.addEventListener('focus', () => setRepairGhost(fix));
-      fixBtn.addEventListener('pointerleave', () => setRepairGhost(null));
-      fixBtn.addEventListener('blur', () => setRepairGhost(null));
+      fixBtn.addEventListener('pointerleave', restorePinnedOrClearGhost);
+      fixBtn.addEventListener('blur', restorePinnedOrClearGhost);
       fixBtn.addEventListener('click', () =>
         attempt(() => {
           engine.cancel();
@@ -1231,7 +1337,8 @@ function render() {
           render();
         }),
       );
-      card.append(fixBtn);
+      actions.append(prevBtn, fixBtn);
+      card.append(actions);
     }
 
     listEl.append(card);
@@ -1454,7 +1561,12 @@ $('command-form').addEventListener('submit', (event) => {
 });
 $('runtime-scan').addEventListener('click', () => refreshRuntimes(true));
 $('runtime-select').addEventListener('change', () => renderRuntimeSelect());
-$('cancel-command').addEventListener('click', () => attempt(() => engine.end()));
+$('cancel-command').addEventListener('click', () => {
+  pinnedRepair = null;
+  setRepairGhost(null);
+  syncPreviewButtonsState();
+  attempt(() => engine.end());
+});
 $('zoom-fit').addEventListener('click', fit);
 $('current-layer').addEventListener('change', (event) => {
   store.layer = event.target.value;
@@ -1741,12 +1853,12 @@ $('export-svg').addEventListener('click', async () => {
     engine.finish();
     requestBusy = true;
     $('export-svg').disabled = true;
-    const thickness = Math.max(0.2, Math.min(500, Number($('extrude-thickness')?.value) || 4.0));
+    const thickness = getActiveThicknessMm();
     let svgText = null;
     if (bridgeConnected) {
       let response = null;
       try {
-        response = await fetch('/api/drawing/svg', {
+        response = await fetch(`/api/drawing/svg?thickness=${encodeURIComponent(thickness)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(store.document),
@@ -1781,7 +1893,7 @@ async function refreshExtrudePreview() {
   const telEl = $('extrude-telemetry');
   errEl.hidden = true;
   telEl.replaceChildren();
-  const thickness = Math.max(0.2, Math.min(500, Number($('extrude-thickness').value) || 4.0));
+  const thickness = Math.max(0.2, Math.min(500, Number($('extrude-thickness').value) || 3.0));
   renderCamTelemetry();
   if (!bridgeConnected) {
     solidViewer.setMesh(null);
@@ -1830,7 +1942,7 @@ async function exportExtrudedFile(fmt) {
     log(t().bridgeRequired3d, true);
     return;
   }
-  const thickness = Math.max(0.2, Math.min(500, Number($('extrude-thickness').value) || 4.0));
+  const thickness = Math.max(0.2, Math.min(500, Number($('extrude-thickness').value) || 3.0));
   try {
     requestBusy = true;
     const res = await fetch('/api/drawing/extrude', {
@@ -1854,14 +1966,40 @@ async function exportExtrudedFile(fmt) {
   }
 }
 
+$('sheet-thickness')?.addEventListener('input', (event) => {
+  const raw = Number(event.target.value);
+  if (Number.isFinite(raw) && raw > 0) {
+    if ($('extrude-thickness')) $('extrude-thickness').value = event.target.value;
+    render();
+  }
+});
+$('sheet-thickness')?.addEventListener('change', (event) => {
+  setActiveThicknessMm(event.target.value);
+  render();
+});
+$('extrude-thickness')?.addEventListener('input', (event) => {
+  const raw = Number(event.target.value);
+  if (Number.isFinite(raw) && raw > 0) {
+    if ($('sheet-thickness')) $('sheet-thickness').value = event.target.value;
+    render();
+  }
+});
+$('extrude-thickness')?.addEventListener('change', (event) => {
+  setActiveThicknessMm(event.target.value);
+  render();
+});
+
+$('preview-all-drc')?.addEventListener('click', () => {
+  if (currentBatchRepair) togglePinnedRepair('ALL', currentBatchRepair);
+});
 $('fix-all-drc').addEventListener('pointerenter', () => {
   if (currentBatchRepair) setRepairGhost(currentBatchRepair);
 });
 $('fix-all-drc').addEventListener('focus', () => {
   if (currentBatchRepair) setRepairGhost(currentBatchRepair);
 });
-$('fix-all-drc').addEventListener('pointerleave', () => setRepairGhost(null));
-$('fix-all-drc').addEventListener('blur', () => setRepairGhost(null));
+$('fix-all-drc').addEventListener('pointerleave', restorePinnedOrClearGhost);
+$('fix-all-drc').addEventListener('blur', restorePinnedOrClearGhost);
 $('fix-all-drc').addEventListener('click', () =>
   attempt(() => {
     if (!currentBatchRepair) return;
@@ -1901,7 +2039,12 @@ window.addEventListener('beforeunload', (event) => {
 
 new ResizeObserver(() => renderGeometry()).observe(canvas);
 log(t().bootLog);
-const bootPreset = new URLSearchParams(window.location.search).get('preset');
+const bootParams = new URLSearchParams(window.location.search);
+const bootThickness = Number(bootParams.get('thickness'));
+if (Number.isFinite(bootThickness) && bootThickness > 0) {
+  setActiveThicknessMm(bootThickness);
+}
+const bootPreset = bootParams.get('preset');
 const buildBootPreset = getPresetBuilder(bootPreset);
 if (buildBootPreset) {
   const doc = buildBootPreset();

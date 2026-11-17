@@ -180,3 +180,39 @@ def test_cli_lint_drawing_returns_exit_code_based_on_validity(tmp_path):
 
     with pytest.raises(ProjectError):
         lint_drawing("{not-json")
+
+
+def test_thickness_aware_default_clearance_and_explicit_override():
+    plate_with_2mm_web = _base_drawing(
+        [
+            {
+                "id": "outer",
+                "layer": "0",
+                "type": "polyline",
+                "points": [[0, 0], [80, 0], [80, 50], [0, 50]],
+                "closed": True,
+            },
+            {"id": "h1", "layer": "0", "type": "circle", "center": [15, 25], "radius": 3},
+            {"id": "h2", "layer": "0", "type": "circle", "center": [23, 25], "radius": 3},
+        ]
+    )
+
+    default_rep = lint_drawing(plate_with_2mm_web)
+    assert default_rep["valid"] is True
+    assert default_rep["min_clearance_mm"] == 1.5
+    assert default_rep["summary"]["warnings"] == 0
+
+    thick_rep = lint_drawing(plate_with_2mm_web, thickness_mm=6.0)
+    assert thick_rep["valid"] is True
+    assert thick_rep["min_clearance_mm"] == 6.0
+    assert thick_rep["summary"]["warnings"] == 1
+    assert thick_rep["issues"][0]["code"] == "MIN_CLEARANCE"
+    assert "< 6.000 mm" in thick_rep["issues"][0]["message"]
+
+    thin_rep = lint_drawing(plate_with_2mm_web, thickness_mm=0.8)
+    assert thin_rep["min_clearance_mm"] == 1.5
+    assert thin_rep["summary"]["warnings"] == 0
+
+    override_rep = lint_drawing(plate_with_2mm_web, thickness_mm=6.0, min_clearance_mm=1.2)
+    assert override_rep["min_clearance_mm"] == 1.2
+    assert override_rep["summary"]["warnings"] == 0

@@ -16,6 +16,32 @@ from cad_lab.topology import (
 
 EPS = 1e-6
 MAX_PAIR_CHECKS = 250_000
+DEFAULT_MIN_CLEARANCE_MM = 1.5
+
+
+def resolve_min_clearance_mm(min_clearance_mm=None, thickness_mm=None):
+    """Resolve effective edge/web clearance: explicit value, else max(1.5, thickness_mm)."""
+    if min_clearance_mm is not None:
+        if isinstance(min_clearance_mm, bool):
+            raise ProjectError("min_clearance_mm must be a finite number >= 0.")
+        try:
+            val = float(min_clearance_mm)
+        except (TypeError, ValueError) as exc:
+            raise ProjectError("min_clearance_mm must be a finite number >= 0.") from exc
+        if not math.isfinite(val) or val < 0.0:
+            raise ProjectError("min_clearance_mm must be a finite number >= 0.")
+        return val
+    if thickness_mm is not None:
+        if isinstance(thickness_mm, bool):
+            raise ProjectError("thickness_mm must be a finite number > 0.")
+        try:
+            t_val = float(thickness_mm)
+        except (TypeError, ValueError) as exc:
+            raise ProjectError("thickness_mm must be a finite number > 0.") from exc
+        if not math.isfinite(t_val) or t_val <= 0.0:
+            raise ProjectError("thickness_mm must be a finite number > 0.")
+        return max(DEFAULT_MIN_CLEARANCE_MM, t_val)
+    return DEFAULT_MIN_CLEARANCE_MM
 
 
 def _dist(a, b):
@@ -167,11 +193,13 @@ def lint_drawing(
     drawing_or_json,
     *,
     max_gap_mm=2.0,
-    min_clearance_mm=1.5,
+    min_clearance_mm=None,
+    thickness_mm=None,
     min_segment_mm=0.5,
     manufacturing=False,
 ):
     """Validate a 2D drawing and return deterministic geometric & manufacturing diagnostics."""
+    min_clearance_mm = resolve_min_clearance_mm(min_clearance_mm, thickness_mm)
     if isinstance(drawing_or_json, bytes):
         if len(drawing_or_json) > MAX_DRAWING_BYTES:
             raise ProjectError("Drawing exceeds the 1 MiB limit.")
@@ -822,6 +850,7 @@ def lint_drawing(
     return {
         "valid": errors == 0,
         "profile": "manufacturing" if manufacturing else "drafting",
+        "min_clearance_mm": round(min_clearance_mm, 4),
         "status": "passed"
         if errors == 0 and warnings == 0
         else ("warnings" if errors == 0 else "failed"),

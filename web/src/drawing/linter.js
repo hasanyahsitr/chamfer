@@ -11,10 +11,42 @@ import {
 
 const EPS = 1e-6;
 const MAX_PAIR_CHECKS = 250000;
+export const DEFAULT_MIN_CLEARANCE_MM = 1.5;
 const round4 = (n) => Math.round(n * 1e4) / 1e4;
 const roundPt = (p) => [round4(p[0]), round4(p[1])];
 const midpoint = (a, b) => [round4((a[0] + b[0]) / 2), round4((a[1] + b[1]) / 2)];
 const mod360 = (deg) => ((deg % 360) + 360) % 360;
+const formatMm = (n) => Number(round4(n).toFixed(3));
+
+export function resolveMinClearanceMm({ minClearanceMm, thicknessMm } = {}) {
+  if (minClearanceMm !== undefined && minClearanceMm !== null) {
+    if (
+      typeof minClearanceMm === 'boolean' ||
+      (typeof minClearanceMm === 'string' && !minClearanceMm.trim())
+    ) {
+      throw new Error('minClearanceMm must be a finite number >= 0.');
+    }
+    const val = Number(minClearanceMm);
+    if (!Number.isFinite(val) || val < 0) {
+      throw new Error('minClearanceMm must be a finite number >= 0.');
+    }
+    return val;
+  }
+  if (thicknessMm !== undefined && thicknessMm !== null) {
+    if (
+      typeof thicknessMm === 'boolean' ||
+      (typeof thicknessMm === 'string' && !thicknessMm.trim())
+    ) {
+      throw new Error('thicknessMm must be a finite number > 0.');
+    }
+    const tVal = Number(thicknessMm);
+    if (!Number.isFinite(tVal) || tVal <= 0) {
+      throw new Error('thicknessMm must be a finite number > 0.');
+    }
+    return Math.max(DEFAULT_MIN_CLEARANCE_MM, tVal);
+  }
+  return DEFAULT_MIN_CLEARANCE_MM;
+}
 
 function entitySegments(entity) {
   const pts = entity.points;
@@ -156,8 +188,18 @@ function segmentArcInteriorHit(a, b, arcEnt) {
 
 export function lintDrawing(
   drawing,
-  { maxGapMm = 2.0, minClearanceMm = 1.5, minSegmentMm = 0.5, manufacturing = false } = {},
+  {
+    maxGapMm = 2.0,
+    minClearanceMm: rawMinClearanceMm,
+    thicknessMm,
+    minSegmentMm = 0.5,
+    manufacturing = false,
+  } = {},
 ) {
+  const minClearanceMm = resolveMinClearanceMm({
+    minClearanceMm: rawMinClearanceMm,
+    thicknessMm,
+  });
   const validated = validateDrawing(drawing);
   const cutLayers = cuttingLayerIds(validated);
   const entities = validated.entities.filter((e) => cutLayers.has(e.layer));
@@ -777,6 +819,7 @@ export function lintDrawing(
   return {
     valid: errors === 0,
     profile: manufacturing ? 'manufacturing' : 'drafting',
+    min_clearance_mm: round4(minClearanceMm),
     status: errors === 0 && warnings === 0 ? 'passed' : errors === 0 ? 'warnings' : 'failed',
     summary: {
       errors,
@@ -787,8 +830,16 @@ export function lintDrawing(
   };
 }
 
-export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarginMm = 0.5 } = {}) {
+export function previewDrcFix(
+  drawing,
+  issue,
+  { minClearanceMm: rawMinClearanceMm, thicknessMm, safetyMarginMm = 0.5 } = {},
+) {
   if (!issue || !Array.isArray(issue.entities) || !issue.entities.length) return null;
+  const minClearanceMm = resolveMinClearanceMm({
+    minClearanceMm: rawMinClearanceMm,
+    thicknessMm,
+  });
   const editableLayers = new Set(
     drawing.layers.filter((l) => l.visible && !l.locked).map((l) => l.id),
   );
@@ -804,10 +855,12 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
       const endPt = roundPt(ent.points.at(-1));
       const gap = distance(ent.points[0], ent.points.at(-1));
       let diffSummary;
+      let shiftMm = 0;
       if (ent.points.length > 3 && gap <= 2.0 + EPS) {
         ent.points.pop();
         ent.closed = true;
-        diffSummary = `${ent.id}: snapped [${endPt.join(', ')}] -> [${startPt.join(', ')}] (${gap.toFixed(3)} mm) & closed=true`;
+        shiftMm = round4(gap);
+        diffSummary = `${ent.id}: snapped [${endPt.join(', ')}] -> [${startPt.join(', ')}] (Δ${formatMm(shiftMm)} mm · closed=true)`;
       } else {
         ent.closed = true;
         diffSummary = `${ent.id}: closed=true (${gap.toFixed(3)} mm gap)`;
@@ -815,6 +868,7 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
       return {
         nextDoc: validateDrawing(nextDoc),
         previewEntities: [structuredClone(ent)],
+        shiftMm,
         diffSummary,
       };
     }
@@ -835,20 +889,26 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
           iLast = ent.points.length - 1;
         if (distance(ent.points[iLast], openPt) <= 1e-3) {
           const old = roundPt(ent.points[iLast]);
-          ent.points[iLast] = roundPt(targetPt);
+          const nextPt = roundPt(targetPt);
+          ent.points[iLast] = nextPt;
+          const shiftMm = round4(distance(old, nextPt));
           return {
             nextDoc: validateDrawing(nextDoc),
             previewEntities: [structuredClone(ent)],
-            diffSummary: `${ent.id}: snapped [${old.join(', ')}] -> [${roundPt(targetPt).join(', ')}]`,
+            shiftMm,
+            diffSummary: `${ent.id}: snapped [${old.join(', ')}] -> [${nextPt.join(', ')}] (Δ${formatMm(shiftMm)} mm)`,
           };
         }
         if (distance(ent.points[i0], openPt) <= 1e-3) {
           const old = roundPt(ent.points[i0]);
-          ent.points[i0] = roundPt(targetPt);
+          const nextPt = roundPt(targetPt);
+          ent.points[i0] = nextPt;
+          const shiftMm = round4(distance(old, nextPt));
           return {
             nextDoc: validateDrawing(nextDoc),
             previewEntities: [structuredClone(ent)],
-            diffSummary: `${ent.id}: snapped [${old.join(', ')}] -> [${roundPt(targetPt).join(', ')}]`,
+            shiftMm,
+            diffSummary: `${ent.id}: snapped [${old.join(', ')}] -> [${nextPt.join(', ')}] (Δ${formatMm(shiftMm)} mm)`,
           };
         }
       }
@@ -864,6 +924,7 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
     return {
       nextDoc: validateDrawing(nextDoc),
       previewEntities: [structuredClone(keepEnt)],
+      shiftMm: 0,
       diffSummary: `Erased duplicate '${dropEnt.id}' (kept '${keepEnt.id}')`,
     };
   }
@@ -904,10 +965,12 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
           anchor.center[1] + uy * targetDist,
         ]);
       }
+      const shiftMm = round4(distance(oldC, mover.center));
       return {
         nextDoc: validateDrawing(nextDoc),
         previewEntities: [structuredClone(mover)],
-        diffSummary: `${mover.id}: center [${oldC.join(', ')}] -> [${mover.center.join(', ')}] (Ø${round4(mover.radius * 2)} mm preserved)`,
+        shiftMm,
+        diffSummary: `${mover.id}: center [${oldC.join(', ')}] -> [${mover.center.join(', ')}] (Δ${formatMm(shiftMm)} mm · Ø${round4(mover.radius * 2)} mm preserved)`,
       };
     }
 
@@ -947,10 +1010,12 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
       proj[0] + (vx / vLen) * targetDist,
       proj[1] + (vy / vLen) * targetDist,
     ]);
+    const shiftMm = round4(distance(oldC, circle.center));
     return {
       nextDoc: validateDrawing(nextDoc),
       previewEntities: [structuredClone(circle)],
-      diffSummary: `${circle.id}: center [${oldC.join(', ')}] -> [${circle.center.join(', ')}] (Ø${round4(circle.radius * 2)} mm preserved)`,
+      shiftMm,
+      diffSummary: `${circle.id}: center [${oldC.join(', ')}] -> [${circle.center.join(', ')}] (Δ${formatMm(shiftMm)} mm · Ø${round4(circle.radius * 2)} mm preserved)`,
     };
   }
 
@@ -968,10 +1033,12 @@ export function previewDrcFix(drawing, issue, { minClearanceMm = 1.5, safetyMarg
       Math.max(bx0 + margin, Math.min(bx1 - margin, circle.center[0])),
       Math.max(by0 + margin, Math.min(by1 - margin, circle.center[1])),
     ]);
+    const shiftMm = round4(distance(oldC, circle.center));
     return {
       nextDoc: validateDrawing(nextDoc),
       previewEntities: [structuredClone(circle)],
-      diffSummary: `${circle.id}: center [${oldC.join(', ')}] -> [${circle.center.join(', ')}] (inside '${issue.entities[1]}')`,
+      shiftMm,
+      diffSummary: `${circle.id}: center [${oldC.join(', ')}] -> [${circle.center.join(', ')}] (Δ${formatMm(shiftMm)} mm · inside '${issue.entities[1]}')`,
     };
   }
 

@@ -19,7 +19,7 @@ export function exportDrawingToSvgBlueprint(
 ) {
   const data = validateDrawing(drawing);
   const cam = computeCamMetrics(data, thicknessMm);
-  const lint = lintDrawing(data, { manufacturing });
+  const lint = lintDrawing(data, { manufacturing, thicknessMm });
 
   const visibleLayers = new Map(
     data.layers.filter((l) => l.visible !== false).map((l) => [l.id, l]),

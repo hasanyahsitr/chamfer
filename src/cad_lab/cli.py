@@ -21,6 +21,15 @@ def main():
         type=Path,
         help="Run deterministic 2D geometry & manufacturing checks on a .cadlab.json drawing",
     )
+    parser.add_argument(
+        "--thickness",
+        type=float,
+        default=None,
+        help=(
+            "Optional sheet thickness in mm for --lint-drawing "
+            "(default clearance = max(1.5, thickness))"
+        ),
+    )
     parser.add_argument("--width", type=float, help="Override width in mm")
     parser.add_argument("--out", type=Path, default=Path("artifacts"))
     args = parser.parse_args()
@@ -28,7 +37,10 @@ def main():
         if args.lint_drawing:
             if args.lint_drawing.stat().st_size > MAX_DRAWING_BYTES:
                 raise ProjectError("Drawing exceeds the 1 MiB limit.")
-            report = lint_drawing(args.lint_drawing.read_text(encoding="utf-8"))
+            report = lint_drawing(
+                args.lint_drawing.read_text(encoding="utf-8"),
+                thickness_mm=args.thickness,
+            )
             print(json.dumps(report, indent=2))
             return 0 if report["valid"] else 1
         if args.project:

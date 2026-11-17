@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DrawingStore } from '../src/drawing/model.js';
 import { CommandEngine } from '../src/drawing/commands.js';
-import { lintDrawing, flawedCncBracketExample } from '../src/drawing/linter.js';
+import { lintDrawing, previewDrcFix, flawedCncBracketExample } from '../src/drawing/linter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -61,4 +61,67 @@ test('office layout example passes JS linter with zero false-positive errors', (
   const report = lintDrawing(office);
   assert.equal(report.valid, true);
   assert.equal(report.summary.errors, 0);
+});
+
+test('thicknessMm scales default min_clearance_mm to 1x sheet thickness while honoring 1.5 mm floor and explicit override', () => {
+  const plateWith2mmWeb = {
+    format: 'cad-lab.drawing',
+    schema_version: 1,
+    units: 'mm',
+    name: 'WebTest',
+    layers: [{ id: '0', name: '0', color: '#d5dee7', visible: true, locked: false }],
+    entities: [
+      {
+        id: 'outer',
+        layer: '0',
+        type: 'polyline',
+        points: [
+          [0, 0],
+          [80, 0],
+          [80, 50],
+          [0, 50],
+        ],
+        closed: true,
+      },
+      { id: 'h1', layer: '0', type: 'circle', center: [15, 25], radius: 3 },
+      { id: 'h2', layer: '0', type: 'circle', center: [23, 25], radius: 3 },
+    ],
+  };
+
+  const defaultRep = lintDrawing(plateWith2mmWeb);
+  assert.equal(defaultRep.min_clearance_mm, 1.5);
+  assert.equal(defaultRep.summary.warnings, 0);
+
+  const thickRep = lintDrawing(plateWith2mmWeb, { thicknessMm: 6.0 });
+  assert.equal(thickRep.min_clearance_mm, 6);
+  assert.equal(thickRep.summary.warnings, 1);
+  assert.equal(thickRep.issues[0].code, 'MIN_CLEARANCE');
+  assert.match(thickRep.issues[0].message, /< 6\.000 mm/);
+
+  const thinRep = lintDrawing(plateWith2mmWeb, { thicknessMm: 0.8 });
+  assert.equal(thinRep.min_clearance_mm, 1.5);
+  assert.equal(thinRep.summary.warnings, 0);
+
+  const overrideRep = lintDrawing(plateWith2mmWeb, { thicknessMm: 6.0, minClearanceMm: 1.2 });
+  assert.equal(overrideRep.min_clearance_mm, 1.2);
+  assert.equal(overrideRep.summary.warnings, 0);
+});
+
+test('previewDrcFix reports exact Euclidean shiftMm and scales target clearance with thicknessMm', () => {
+  const flawed = flawedCncBracketExample();
+  const reportDefault = lintDrawing(flawed);
+  const crashIssue = reportDefault.issues.find(
+    (i) => i.code === 'CIRCLE_COLLISION' && i.entities.includes('hole-edge-crash'),
+  );
+  assert.ok(crashIssue);
+
+  const fixDefault = previewDrcFix(flawed, crashIssue);
+  assert.equal(fixDefault.shiftMm, 3.5);
+  assert.match(fixDefault.diffSummary, /Δ3\.5 mm/);
+
+  const fix6mm = previewDrcFix(flawed, crashIssue, { thicknessMm: 6.0 });
+  assert.equal(fix6mm.shiftMm, 8);
+  assert.match(fix6mm.diffSummary, /Δ8 mm/);
+  const movedHole = fix6mm.nextDoc.entities.find((e) => e.id === 'hole-edge-crash');
+  assert.deepEqual(movedHole.center, [70.5, 25]);
 });

@@ -1,5 +1,6 @@
 import './quotegate.css';
 import { arcPointAt, arcSweepDeg } from '../drawing/model.js';
+import { cuttingLayerIds } from '../drawing/ops.js';
 import { exportDrawingToDxf } from '../drawing/dxf.js';
 import {
   DEFAULT_TARIFF,
@@ -10,10 +11,12 @@ import {
   createDemoDxf,
   entityBbox,
   ingestIndustrialDxf,
+  sanitizeTariff,
   splitDrawingIntoParts,
 } from './engine.js';
 
 const TARIFF_STORAGE_KEY = 'chamfer_quotegate_tariff_v1';
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 
 const I18N = {
   tr: {
@@ -56,6 +59,11 @@ const I18N = {
     totalCut: 'Toplam Kesim',
     totalPierces: 'Toplam Patlatma',
     floorNote: 'Minimum sipariş tabanı uygulandı.',
+    drcCheckoutBlock:
+      'Üretim hatası (DRC) içeren parçalar onarılmadan WhatsApp siparişi oluşturulamaz. Sol taraftaki "Otomatik Tamir Et (DRC)" düğmesini kullanın.',
+    drcCheckoutTooltip: 'Sipariş göndermek için önce DRC üretim hatalarını onarın.',
+    massEstNote: 'Açık konturlu parçalarda ağırlık dış zarf üzerinden tahmini hesaplandı.',
+    fileTooBig: 'DXF dosyası 2 MiB sınırını aşıyor; parçaları bölerek yükleyin.',
   },
   en: {
     subtitle: 'Chamfer QuoteGate · Millimeter DXF Analysis & Instant Quoting',
@@ -76,6 +84,7 @@ const I18N = {
     lblExpress: '24h Express Production (+35%)',
     lblGrandTotal: 'Total incl. VAT',
     btnWhatsapp: 'Send Order via WhatsApp',
+    btnPrintQuote: 'Print Quote / Save PDF',
     btnPrint: 'Print Quote / Save PDF',
     passBadge: 'Machinable (PASS)',
     failBadge: 'DRC Blocked',
@@ -97,22 +106,94 @@ const I18N = {
     totalCut: 'Total Cut',
     totalPierces: 'Total Pierces',
     floorNote: 'Minimum order floor applied.',
+    drcCheckoutBlock:
+      'Parts with manufacturing DRC errors must be repaired before placing a WhatsApp order. Click "Auto-Repair (DRC)" on the blocked part(s).',
+    drcCheckoutTooltip: 'Repair DRC manufacturing errors before ordering.',
+    massEstNote: 'Open-contour mass is estimated from the part envelope.',
+    fileTooBig: 'DXF file exceeds the 2 MiB limit; please split parts before uploading.',
   },
 };
+
+function parseEmbedConfig() {
+  const params = new URLSearchParams(window.location.search);
+  const isEmbed = params.get('embed') === '1';
+  const paramKeys = [
+    'shop',
+    'wa',
+    'cut',
+    'pierce',
+    'setup',
+    'min',
+    'scrap',
+    'vat',
+    's235',
+    'ss304',
+    'al',
+    'galv',
+    'usd',
+    'eur',
+  ];
+  const hasUrlOverrides = isEmbed || paramKeys.some((k) => params.has(k));
+  if (!hasUrlOverrides) {
+    return { isEmbed: false, urlTariff: null };
+  }
+  const urlTariff = sanitizeTariff({
+    shopName: params.get('shop') ?? DEFAULT_TARIFF.shopName,
+    whatsappPhone: params.get('wa') ?? '',
+    cutRateTryPerMeter: params.get('cut'),
+    pierceTry: params.get('pierce'),
+    setupFeeTry: params.get('setup'),
+    minOrderTry: params.get('min'),
+    scrapMarkupPct: params.get('scrap'),
+    vatPct: params.get('vat'),
+    usdTry: params.get('usd'),
+    eurTry: params.get('eur'),
+    materialRateOverrides: {
+      steel_s235: params.get('s235'),
+      stainless_304: params.get('ss304'),
+      aluminum_6061: params.get('al'),
+      galvanized: params.get('galv'),
+    },
+  });
+  return { isEmbed, urlTariff };
+}
+
+function escapeHtmlAttr(str) {
+  return String(str)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function buildEmbedIframeCode(tariff) {
+  const u = new URL(window.location.href.split('#')[0]);
+  u.search = '';
+  u.searchParams.set('embed', '1');
+  u.searchParams.set('shop', tariff.shopName);
+  if (tariff.whatsappPhone) u.searchParams.set('wa', tariff.whatsappPhone);
+  u.searchParams.set('cut', String(tariff.cutRateTryPerMeter));
+  u.searchParams.set('pierce', String(tariff.pierceTry));
+  u.searchParams.set('setup', String(tariff.setupFeeTry));
+  u.searchParams.set('min', String(tariff.minOrderTry));
+  u.searchParams.set('scrap', String(tariff.scrapMarkupPct));
+  u.searchParams.set('vat', String(tariff.vatPct));
+  u.searchParams.set('usd', String(tariff.usdTry));
+  u.searchParams.set('eur', String(tariff.eurTry));
+  u.searchParams.set('s235', String(tariff.materialRateOverrides.steel_s235));
+  u.searchParams.set('ss304', String(tariff.materialRateOverrides.stainless_304));
+  u.searchParams.set('al', String(tariff.materialRateOverrides.aluminum_6061));
+  u.searchParams.set('galv', String(tariff.materialRateOverrides.galvanized));
+  const safeSrc = escapeHtmlAttr(u.toString());
+  return `<iframe src="${safeSrc}" width="100%" height="780" style="border:0;border-radius:16px;" loading="lazy"></iframe>`;
+}
 
 function loadSavedTariff() {
   try {
     const raw = localStorage.getItem(TARIFF_STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_TARIFF);
     const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_TARIFF,
-      ...parsed,
-      materialRateOverrides: {
-        ...DEFAULT_TARIFF.materialRateOverrides,
-        ...(parsed?.materialRateOverrides || {}),
-      },
-    };
+    return sanitizeTariff(parsed);
   } catch {
     return structuredClone(DEFAULT_TARIFF);
   }
@@ -120,7 +201,7 @@ function loadSavedTariff() {
 
 function saveTariff(tariff) {
   try {
-    localStorage.setItem(TARIFF_STORAGE_KEY, JSON.stringify(tariff));
+    localStorage.setItem(TARIFF_STORAGE_KEY, JSON.stringify(sanitizeTariff(tariff)));
   } catch {
     // ignore quota restrictions
   }
@@ -129,7 +210,10 @@ function saveTariff(tariff) {
 function buildPartSvg(drawing) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
-  const ents = drawing.entities.filter((e) => e.type !== 'dim' && e.type !== 'text');
+  const cutLayers = cuttingLayerIds(drawing);
+  const ents = drawing.entities.filter(
+    (e) => cutLayers.has(e.layer) && e.type !== 'dim' && e.type !== 'text',
+  );
   if (!ents.length) return svg;
 
   let minX = Infinity;
@@ -233,6 +317,7 @@ const els = {
   lblGrandTotal: document.getElementById('lbl-grand-total'),
   valGrandTotal: document.getElementById('val-grand-total'),
   lblFloorNote: document.getElementById('lbl-floor-note'),
+  quoteDrcWarning: document.getElementById('quote-drc-warning'),
   btnWhatsapp: document.getElementById('btn-whatsapp'),
   btnPrintQuote: document.getElementById('btn-print-quote'),
   tariffBackdrop: document.getElementById('tariff-backdrop'),
@@ -249,17 +334,27 @@ const els = {
   tfMatSteel: document.getElementById('tf-mat-steel'),
   tfMatSs: document.getElementById('tf-mat-ss'),
   tfMatAl: document.getElementById('tf-mat-al'),
+  tfMatGalv: document.getElementById('tf-mat-galv'),
+  tfUsd: document.getElementById('tf-usd'),
+  tfEur: document.getElementById('tf-eur'),
   tfEmbedCode: document.getElementById('tf-embed-code'),
   btnCopyEmbed: document.getElementById('btn-copy-embed'),
   btnResetTariff: document.getElementById('btn-reset-tariff'),
 };
 
+const { isEmbed, urlTariff } = parseEmbedConfig();
+if (isEmbed) {
+  if (els.btnOpenTariff) els.btnOpenTariff.hidden = true;
+  if (els.linkCad) els.linkCad.hidden = true;
+}
+
 const state = {
   lang: 'tr',
+  isEmbed,
   fileName: '',
   intakeReport: null,
   parts: [],
-  tariff: loadSavedTariff(),
+  tariff: urlTariff || loadSavedTariff(),
   materialId: 'steel_s235',
   thicknessMm: 2.0,
   currency: 'TRY',
@@ -313,7 +408,6 @@ function applyLanguage() {
 
 function loadDxfContent(dxfText, fileName) {
   els.errorBanner.hidden = true;
-  els.intakeBanner.hidden = true;
   try {
     const { drawing, intakeReport } = ingestIndustrialDxf(dxfText, fileName);
     const split = splitDrawingIntoParts(drawing).map((p) => ({
@@ -321,6 +415,18 @@ function loadDxfContent(dxfText, fileName) {
       qty: 1,
       appliedFixes: [],
     }));
+    // Pre-validate full sheet complexity & quote transactionally before mutating active UI state.
+    calculateSheetQuote(
+      split,
+      {
+        materialId: state.materialId,
+        thicknessMm: state.thicknessMm,
+        currency: state.currency,
+        express: state.express,
+      },
+      state.tariff,
+    );
+
     state.fileName = fileName;
     state.intakeReport = intakeReport;
     state.parts = split;
@@ -339,16 +445,21 @@ function loadDxfContent(dxfText, fileName) {
 }
 
 function downloadCleanPartDxf(part) {
-  const dxfOut = exportDrawingToDxf(part.drawing, { cutOnly: true });
-  const blob = new Blob([dxfOut], { type: 'application/dxf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${(part.drawing.name || 'parca').replace(/[^a-z0-9_-]+/gi, '-')}-temiz.dxf`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  try {
+    const dxfOut = exportDrawingToDxf(part.drawing, { cutOnly: true });
+    const blob = new Blob([dxfOut], { type: 'application/dxf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(part.drawing.name || 'parca').replace(/[^a-z0-9_-]+/gi, '-')}-temiz.dxf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    els.errorBanner.hidden = false;
+    els.errorBanner.textContent = err.message;
+  }
 }
 
 function renderAll() {
@@ -488,9 +599,17 @@ function renderAll() {
       fixBtn.className = 'qg-btn-repair no-print';
       fixBtn.textContent = t.repairBtn;
       fixBtn.addEventListener('click', () => {
-        const res = autoRepairPartDrawing(state.parts[i].drawing, state.thicknessMm);
-        state.parts[i].drawing = res.drawing;
-        state.parts[i].appliedFixes = [...(state.parts[i].appliedFixes || []), ...res.appliedFixes];
+        const prevPart = state.parts[i];
+        const prevQty = prevPart.qty || 1;
+        const prevFixes = prevPart.appliedFixes || [];
+        const res = autoRepairPartDrawing(prevPart.drawing, state.thicknessMm);
+        const reSplit = splitDrawingIntoParts(res.drawing);
+        const updatedParts = reSplit.map((sp, idx) => ({
+          ...sp,
+          qty: prevQty,
+          appliedFixes: idx === 0 ? [...prevFixes, ...res.appliedFixes] : [...res.appliedFixes],
+        }));
+        state.parts.splice(i, 1, ...updatedParts);
         renderAll();
       });
       acts.appendChild(fixBtn);
@@ -513,10 +632,24 @@ function renderAll() {
     els.partsList.appendChild(card);
   }
 
-  // Quote sidebar rendering
+  // Quote sidebar rendering & DRC checkout gate
   const s = quote.summary;
-  els.quoteValidBadge.className = `qg-status-pill ${s.allPartsValid ? 'pass' : 'warn'}`;
+  els.quoteValidBadge.className = `qg-status-pill ${s.allPartsValid ? 'pass' : 'fail'}`;
   els.quoteValidBadge.textContent = s.allPartsValid ? t.passBadge : `${s.errorCount} DRC`;
+
+  els.btnWhatsapp.disabled = !s.allPartsValid || quote.parts.length === 0;
+  if (!s.allPartsValid) {
+    els.btnWhatsapp.title = t.drcCheckoutTooltip;
+    els.quoteDrcWarning.hidden = false;
+    const hasMassEst = quote.parts.some((p) => p.massEstimated);
+    els.quoteDrcWarning.textContent = hasMassEst
+      ? `${t.drcCheckoutBlock} ${t.massEstNote}`
+      : t.drcCheckoutBlock;
+  } else {
+    els.btnWhatsapp.removeAttribute('title');
+    els.quoteDrcWarning.hidden = true;
+    els.quoteDrcWarning.textContent = '';
+  }
 
   els.quoteTelemetry.replaceChildren();
   for (const [lbl, val] of [
@@ -567,20 +700,21 @@ function renderAll() {
   els.valGrandTotal.textContent = fmtMoney(s.grandTotal, quote.currencySymbol);
   els.lblFloorNote.hidden = !s.minFloorApplied;
   if (s.minFloorApplied) {
+    const fx =
+      quote.currency === 'USD'
+        ? Math.max(1, Number(state.tariff.usdTry) || 35)
+        : quote.currency === 'EUR'
+          ? Math.max(1, Number(state.tariff.eurTry) || 38)
+          : 1;
     els.lblFloorNote.textContent = `${t.floorNote} (${fmtMoney(
-      state.tariff.minOrderTry /
-        (quote.currency === 'USD'
-          ? state.tariff.usdTry
-          : quote.currency === 'EUR'
-            ? state.tariff.eurTry
-            : 1),
+      state.tariff.minOrderTry / fx,
       quote.currencySymbol,
     )})`;
   }
 }
 
 function openTariffModal() {
-  const tf = state.tariff;
+  const tf = sanitizeTariff(state.tariff);
   els.tfShopName.value = tf.shopName;
   els.tfWhatsapp.value = tf.whatsappPhone || '';
   els.tfCutRate.value = String(tf.cutRateTryPerMeter);
@@ -589,18 +723,25 @@ function openTariffModal() {
   els.tfMinOrder.value = String(tf.minOrderTry);
   els.tfScrap.value = String(tf.scrapMarkupPct);
   els.tfVat.value = String(tf.vatPct);
-  els.tfMatSteel.value = String(
-    tf.materialRateOverrides?.steel_s235 ?? MATERIALS.steel_s235.rateTryPerKg,
-  );
-  els.tfMatSs.value = String(
-    tf.materialRateOverrides?.stainless_304 ?? MATERIALS.stainless_304.rateTryPerKg,
-  );
-  els.tfMatAl.value = String(
-    tf.materialRateOverrides?.aluminum_6061 ?? MATERIALS.aluminum_6061.rateTryPerKg,
-  );
-  const pageUrl = window.location.href.split('#')[0];
-  els.tfEmbedCode.value = `<iframe src="${pageUrl}" width="100%" height="780" style="border:0;border-radius:16px;" loading="lazy"></iframe>`;
+  els.tfMatSteel.value = String(tf.materialRateOverrides.steel_s235);
+  els.tfMatSs.value = String(tf.materialRateOverrides.stainless_304);
+  els.tfMatAl.value = String(tf.materialRateOverrides.aluminum_6061);
+  els.tfMatGalv.value = String(tf.materialRateOverrides.galvanized);
+  els.tfUsd.value = String(tf.usdTry);
+  els.tfEur.value = String(tf.eurTry);
+  els.tfEmbedCode.value = buildEmbedIframeCode(tf);
   els.tariffBackdrop.hidden = false;
+}
+
+async function handleUploadedFile(file) {
+  if (!file) return;
+  const t = I18N[state.lang];
+  if (Number(file.size) > MAX_UPLOAD_BYTES) {
+    els.errorBanner.hidden = false;
+    els.errorBanner.textContent = t.fileTooBig;
+    return;
+  }
+  loadDxfContent(await file.text(), file.name);
 }
 
 // Event Bindings
@@ -627,14 +768,10 @@ els.dropZone.addEventListener('dragleave', () => {
 els.dropZone.addEventListener('drop', async (e) => {
   e.preventDefault();
   els.dropZone.classList.remove('is-drag');
-  const file = e.dataTransfer?.files?.[0];
-  if (!file) return;
-  loadDxfContent(await file.text(), file.name);
+  await handleUploadedFile(e.dataTransfer?.files?.[0]);
 });
 els.fileInput.addEventListener('change', async () => {
-  const file = els.fileInput.files?.[0];
-  if (!file) return;
-  loadDxfContent(await file.text(), file.name);
+  await handleUploadedFile(els.fileInput.files?.[0]);
   els.fileInput.value = '';
 });
 
@@ -665,7 +802,7 @@ els.chkExpress.addEventListener('change', () => {
 
 els.btnWhatsapp.addEventListener('click', () => {
   const q = state.lastQuote;
-  if (!q) return;
+  if (!q || !q.summary.allPartsValid) return;
   const partLines = q.parts.map(
     (p) =>
       `• ${p.name} (${p.cam.bbox_mm[0].toFixed(1)}×${p.cam.bbox_mm[1].toFixed(1)} mm) × ${p.qty} adet -> ${fmtMoney(p.lineTotalDisplay, q.currencySymbol)}`,
@@ -715,24 +852,27 @@ els.btnCopyEmbed.addEventListener('click', async () => {
 
 els.tariffForm.addEventListener('submit', (e) => {
   e.preventDefault();
-  state.tariff = {
+  state.tariff = sanitizeTariff({
     ...state.tariff,
-    shopName: els.tfShopName.value.trim() || DEFAULT_TARIFF.shopName,
-    whatsappPhone: els.tfWhatsapp.value.trim(),
-    cutRateTryPerMeter: Number(els.tfCutRate.value) || DEFAULT_TARIFF.cutRateTryPerMeter,
-    pierceTry: Number(els.tfPierce.value) ?? DEFAULT_TARIFF.pierceTry,
-    setupFeeTry: Number(els.tfSetup.value) ?? DEFAULT_TARIFF.setupFeeTry,
-    minOrderTry: Number(els.tfMinOrder.value) ?? DEFAULT_TARIFF.minOrderTry,
-    scrapMarkupPct: Number(els.tfScrap.value) ?? DEFAULT_TARIFF.scrapMarkupPct,
-    vatPct: Number(els.tfVat.value) ?? DEFAULT_TARIFF.vatPct,
+    shopName: els.tfShopName.value,
+    whatsappPhone: els.tfWhatsapp.value,
+    cutRateTryPerMeter: els.tfCutRate.value,
+    pierceTry: els.tfPierce.value,
+    setupFeeTry: els.tfSetup.value,
+    minOrderTry: els.tfMinOrder.value,
+    scrapMarkupPct: els.tfScrap.value,
+    vatPct: els.tfVat.value,
+    usdTry: els.tfUsd.value,
+    eurTry: els.tfEur.value,
     materialRateOverrides: {
-      ...state.tariff.materialRateOverrides,
-      steel_s235: Number(els.tfMatSteel.value) || MATERIALS.steel_s235.rateTryPerKg,
-      stainless_304: Number(els.tfMatSs.value) || MATERIALS.stainless_304.rateTryPerKg,
-      aluminum_6061: Number(els.tfMatAl.value) || MATERIALS.aluminum_6061.rateTryPerKg,
+      steel_s235: els.tfMatSteel.value,
+      stainless_304: els.tfMatSs.value,
+      aluminum_6061: els.tfMatAl.value,
+      galvanized: els.tfMatGalv.value,
     },
-  };
+  });
   saveTariff(state.tariff);
+  els.tfEmbedCode.value = buildEmbedIframeCode(state.tariff);
   els.tariffBackdrop.hidden = true;
   renderAll();
 });

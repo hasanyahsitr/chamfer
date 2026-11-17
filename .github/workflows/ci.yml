@@ -60,4 +60,4 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
-      - run: node -e "const fs = require('node:fs'); const html = fs.readFileSync('dist/index.html', 'utf8'); if (!html.includes('id=\"drawing-canvas\"')) process.exit(1);"
+      - run: node -e "const fs = require('node:fs'); const idx = fs.readFileSync('dist/index.html', 'utf8'); const qg = fs.readFileSync('dist/quotegate.html', 'utf8'); if (!idx.includes('id=\"drawing-canvas\"') || !qg.includes('id=\"drop-zone\"')) process.exit(1);"

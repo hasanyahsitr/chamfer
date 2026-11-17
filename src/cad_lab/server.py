@@ -105,7 +105,14 @@ class CADHandler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
-    def _send(self, status, payload, content_type="application/json; charset=utf-8", filename=None):
+    def _send(
+        self,
+        status,
+        payload,
+        content_type="application/json; charset=utf-8",
+        filename=None,
+        allow_iframe=False,
+    ):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
@@ -113,12 +120,13 @@ class CADHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        frame_policy = "frame-ancestors *" if allow_iframe else "frame-ancestors 'none'"
         self.send_header(
             "Content-Security-Policy",
             (
                 "default-src 'self'; script-src 'self'; style-src 'self'; "
                 "connect-src 'self'; img-src 'self' data: blob:; "
-                "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+                f"object-src 'none'; base-uri 'none'; {frame_policy}"
             ),
         )
         if filename:
@@ -198,7 +206,12 @@ class CADHandler(BaseHTTPRequestHandler):
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             if path.suffix == ".js":
                 content_type = "text/javascript"
-            self._send(200, path.read_bytes(), content_type)
+            self._send(
+                200,
+                path.read_bytes(),
+                content_type,
+                allow_iframe=(route == "/quotegate.html"),
+            )
         except (OSError, ValueError):
             self._json(404, {"error": "Not found."})
 

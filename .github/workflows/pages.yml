@@ -34,10 +34,11 @@ jobs:
         run: |
           node --input-type=module -e "
             import fs from 'node:fs';
-            for (const file of ['dist/index.html', 'dist/drafting.html', 'dist/plate.html']) {
+            for (const file of ['dist/index.html', 'dist/drafting.html', 'dist/plate.html', 'dist/quotegate.html']) {
               let html = fs.readFileSync(file, 'utf8');
               html = html
                 .replaceAll('href=\"/plate.html\"', 'href=\"/chamfer/plate.html\"')
+                .replaceAll('href=\"/quotegate.html\"', 'href=\"/chamfer/quotegate.html\"')
                 .replaceAll('href=\"/\"', 'href=\"/chamfer/\"')
                 .replaceAll('href=\"/mark.svg\"', 'href=\"/chamfer/mark.svg\"')
                 .replaceAll('src=\"/mark.svg\"', 'src=\"/chamfer/mark.svg\"');

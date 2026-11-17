@@ -681,6 +681,13 @@ body {
   cursor: pointer;
 }
 
+.qg-btn-primary:disabled {
+  background: var(--border-strong);
+  color: var(--ink-subtle);
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
 .qg-btn-secondary {
   width: 100%;
   padding: 10px 14px;

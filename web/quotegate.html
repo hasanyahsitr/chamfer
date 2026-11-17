@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="theme-color" content="#0f172a" />
     <title>Chamfer QuoteGate — Anında Fason Lazer &amp; CNC Fiyat Teklifi</title>
-    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="./mark.svg" type="image/svg+xml" />
   </head>
   <body>
     <div class="qg-shell">
@@ -167,6 +167,7 @@
                 <strong id="val-grand-total" class="qg-grand-total">₺0,00</strong>
               </div>
               <p id="lbl-floor-note" class="qg-floor-note" hidden></p>
+              <div id="quote-drc-warning" class="qg-alert error" hidden></div>
             </div>
 
             <div class="qg-quote-actions no-print">
@@ -254,6 +255,21 @@
             <div class="qg-field">
               <label for="tf-mat-al">Alüminyum (₺/kg)</label>
               <input id="tf-mat-al" type="number" step="1" min="1" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-mat-galv">Galvanizli Sac (₺/kg)</label>
+              <input id="tf-mat-galv" type="number" step="1" min="1" required />
+            </div>
+          </div>
+
+          <div class="qg-field-row">
+            <div class="qg-field">
+              <label for="tf-usd">USD Kuru (₺)</label>
+              <input id="tf-usd" type="number" step="0.1" min="1" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-eur">EUR Kuru (₺)</label>
+              <input id="tf-eur" type="number" step="0.1" min="1" required />
             </div>
           </div>
 

@@ -7,14 +7,17 @@ import {
   analyzeDrawingTopology,
   arcGeometry,
   computeCamMetrics,
-  mirrorEntity,
-  rotateEntity,
+  cuttingLayerIds,
+  pointStrictlyInsideLoop,
 } from '../drawing/ops.js';
 import { lintDrawing, previewDrcFix } from '../drawing/linter.js';
 
 const EPS = 1e-6;
 const MAX_DXF_BYTES = 2 * 1024 * 1024;
 const MAX_INSERT_DEPTH = 8;
+const MAX_EXPANDED_INSERTS = 500;
+export const MAX_SHEET_ENTITIES = 1200;
+export const MAX_PART_ENTITIES = 300;
 const IGNORED_ANNOTATIONS = new Set([
   'TEXT',
   'MTEXT',
@@ -29,11 +32,15 @@ const IGNORED_ANNOTATIONS = new Set([
   'WIPEOUT',
   'RAY',
   'XLINE',
+  'VIEWPORT',
+  'ATTRIB',
+  'ATTDEF',
 ]);
 const REJECTED_CURVES = new Set(['SPLINE', 'ELLIPSE']);
 
 const round4 = (n) => Math.round(n * 1e4) / 1e4;
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
+const round9 = (n) => Math.round(n * 1e9) / 1e9;
 const round2 = (n) => Math.round(n * 100) / 100;
 const roundPt = (p) => [round6(p[0]), round6(p[1])];
 const mod360 = (deg) => ((deg % 360) + 360) % 360;
@@ -97,27 +104,111 @@ export const DEFAULT_TARIFF = Object.freeze({
   },
 });
 
+function clampFinite(val, fallback, min, max) {
+  if (val === null || val === undefined || val === '' || typeof val === 'boolean') return fallback;
+  const n = Number(val);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Normalizes workshop tariff parameters with finite bounds while preserving valid zeroes (e.g. 0% VAT).
+ */
+export function sanitizeTariff(rawTariff = {}) {
+  const src = rawTariff && typeof rawTariff === 'object' ? rawTariff : {};
+  const rawOverrides =
+    src.materialRateOverrides && typeof src.materialRateOverrides === 'object'
+      ? src.materialRateOverrides
+      : {};
+  const shopNameRaw =
+    typeof src.shopName === 'string'
+      ? src.shopName
+          .replace(/[\x00-\x1f<>]/g, '')
+          .trim()
+          .slice(0, 80)
+      : '';
+  const phoneRaw =
+    typeof src.whatsappPhone === 'string'
+      ? src.whatsappPhone.replace(/[^\d]/g, '').slice(0, 20)
+      : '';
+
+  return {
+    shopName: shopNameRaw || DEFAULT_TARIFF.shopName,
+    whatsappPhone: phoneRaw,
+    usdTry: clampFinite(src.usdTry, DEFAULT_TARIFF.usdTry, 1, 10000),
+    eurTry: clampFinite(src.eurTry, DEFAULT_TARIFF.eurTry, 1, 10000),
+    cutRateTryPerMeter: clampFinite(
+      src.cutRateTryPerMeter,
+      DEFAULT_TARIFF.cutRateTryPerMeter,
+      0.1,
+      100000,
+    ),
+    pierceTry: clampFinite(src.pierceTry, DEFAULT_TARIFF.pierceTry, 0, 50000),
+    setupFeeTry: clampFinite(src.setupFeeTry, DEFAULT_TARIFF.setupFeeTry, 0, 500000),
+    minOrderTry: clampFinite(src.minOrderTry, DEFAULT_TARIFF.minOrderTry, 0, 5000000),
+    scrapMarkupPct: clampFinite(src.scrapMarkupPct, DEFAULT_TARIFF.scrapMarkupPct, 0, 300),
+    vatPct: clampFinite(src.vatPct, DEFAULT_TARIFF.vatPct, 0, 100),
+    expressMultiplier: clampFinite(src.expressMultiplier, DEFAULT_TARIFF.expressMultiplier, 1, 10),
+    materialRateOverrides: {
+      steel_s235: clampFinite(
+        rawOverrides.steel_s235,
+        MATERIALS.steel_s235.rateTryPerKg,
+        1,
+        500000,
+      ),
+      stainless_304: clampFinite(
+        rawOverrides.stainless_304,
+        MATERIALS.stainless_304.rateTryPerKg,
+        1,
+        500000,
+      ),
+      aluminum_6061: clampFinite(
+        rawOverrides.aluminum_6061,
+        MATERIALS.aluminum_6061.rateTryPerKg,
+        1,
+        500000,
+      ),
+      galvanized: clampFinite(
+        rawOverrides.galvanized,
+        MATERIALS.galvanized.rateTryPerKg,
+        1,
+        500000,
+      ),
+    },
+  };
+}
+
 const INSUNITS_SCALE = new Map([
   [1, { scale: 25.4, label: 'inch' }],
   [2, { scale: 304.8, label: 'feet' }],
   [4, { scale: 1.0, label: 'mm' }],
   [5, { scale: 10.0, label: 'cm' }],
   [6, { scale: 1000.0, label: 'm' }],
+  [8, { scale: 0.0000254, label: 'microinch' }],
+  [9, { scale: 0.0254, label: 'mil' }],
+  [10, { scale: 914.4, label: 'yard' }],
+  [13, { scale: 0.001, label: 'micron' }],
+  [14, { scale: 100.0, label: 'dm' }],
 ]);
 
-/**
- * Analytically converts a DXF LWPOLYLINE bulge segment between p1 and p2 into a line or exact circular arc.
- */
-export function bulgeSegmentToArc(p1, p2, bulge) {
+function computeBulgeArcGeometry(p1, p2, bulge) {
   const chord = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
   if (chord <= EPS) return null;
 
   const b = Number(bulge || 0);
+  const sagitta = (chord * Math.abs(b)) / 2;
   if (!Number.isFinite(b) || Math.abs(b) <= 1e-7) {
-    return { type: 'line', points: [roundPt(p1), roundPt(p2)] };
+    return { kind: 'line', entity: { type: 'line', points: [roundPt(p1), roundPt(p2)] } };
   }
 
   const radius = (chord * (1 + b * b)) / (4 * Math.abs(b));
+  if (Math.abs(b) < 1 && (sagitta <= 1e-4 || radius > 5e5)) {
+    return { kind: 'line', entity: { type: 'line', points: [roundPt(p1), roundPt(p2)] } };
+  }
+  if (!Number.isFinite(radius) || radius > 5e5) {
+    throw new Error('LWPOLYLINE yay yarıçapı izin verilen sınırı (500 m) aşıyor.');
+  }
+
   const d = (chord * (1 - b * b)) / (4 * b);
   const mx = (p1[0] + p2[0]) / 2;
   const my = (p1[1] + p2[1]) / 2;
@@ -129,19 +220,78 @@ export function bulgeSegmentToArc(p1, p2, bulge) {
   const a1 = mod360((Math.atan2(p1[1] - cy, p1[0] - cx) * 180) / Math.PI);
   const a2 = mod360((Math.atan2(p2[1] - cy, p2[0] - cx) * 180) / Math.PI);
   const [startAngle, endAngle] = b > 0 ? [a1, a2] : [a2, a1];
-
   const sweep = arcSweepDeg(startAngle, endAngle);
-  if (sweep <= 1e-4 || sweep >= 360 - 1e-4) {
-    return { type: 'line', points: [roundPt(p1), roundPt(p2)] };
-  }
 
   return {
-    type: 'arc',
-    center: roundPt([cx, cy]),
-    radius: round6(radius),
-    start_angle: round6(startAngle),
-    end_angle: round6(endAngle),
+    kind: 'arc',
+    cx,
+    cy,
+    radius,
+    startAngle,
+    endAngle,
+    sweep,
   };
+}
+
+/**
+ * Analytically converts a DXF LWPOLYLINE bulge segment between p1 and p2 into a line or exact circular arc.
+ */
+export function bulgeSegmentToArc(p1, p2, bulge) {
+  const geom = computeBulgeArcGeometry(p1, p2, bulge);
+  if (!geom) return null;
+  if (geom.kind === 'line') return geom.entity;
+  if (geom.sweep <= 1e-4) {
+    return { type: 'line', points: [roundPt(p1), roundPt(p2)] };
+  }
+  if (geom.sweep >= 360 - 1e-4) {
+    throw new Error(
+      'Tam 360° tek segment LWPOLYLINE bombesi tek yaya indirgenemez; iki yarım yay olarak bölün.',
+    );
+  }
+  return {
+    type: 'arc',
+    center: [round9(geom.cx), round9(geom.cy)],
+    radius: round9(geom.radius),
+    start_angle: round9(geom.startAngle),
+    end_angle: round9(geom.endAngle),
+  };
+}
+
+function bulgeSegmentToPrimitives(p1, p2, bulge) {
+  const geom = computeBulgeArcGeometry(p1, p2, bulge);
+  if (!geom) return [];
+  if (geom.kind === 'line') return [geom.entity];
+  if (geom.sweep <= 1e-4) {
+    return [{ type: 'line', points: [roundPt(p1), roundPt(p2)] }];
+  }
+  if (geom.sweep >= 360 - 1e-2) {
+    const midAngle = mod360(geom.startAngle + geom.sweep / 2);
+    return [
+      {
+        type: 'arc',
+        center: [round9(geom.cx), round9(geom.cy)],
+        radius: round9(geom.radius),
+        start_angle: round9(geom.startAngle),
+        end_angle: round9(midAngle),
+      },
+      {
+        type: 'arc',
+        center: [round9(geom.cx), round9(geom.cy)],
+        radius: round9(geom.radius),
+        start_angle: round9(midAngle),
+        end_angle: round9(geom.endAngle),
+      },
+    ];
+  }
+  return [
+    {
+      type: 'arc',
+      center: [round9(geom.cx), round9(geom.cy)],
+      radius: round9(geom.radius),
+      start_angle: round9(geom.startAngle),
+      end_angle: round9(geom.endAngle),
+    },
+  ];
 }
 
 /**
@@ -194,6 +344,7 @@ function tokenizeDxfPairs(dxfText) {
     throw new Error('Geçersiz ASCII DXF formatı.');
   }
   const pairs = [];
+  let sawEof = false;
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const codeStr = lines[i].trim();
     if (!/^-?\d+$/.test(codeStr)) {
@@ -204,7 +355,13 @@ function tokenizeDxfPairs(dxfText) {
     const code = Number(codeStr);
     const val = lines[i + 1];
     pairs.push([code, val]);
-    if (code === 0 && val.trim().toUpperCase() === 'EOF') break;
+    if (code === 0 && val.trim().toUpperCase() === 'EOF') {
+      sawEof = true;
+      break;
+    }
+  }
+  if (!sawEof) {
+    throw new Error('DXF dosyası eksik veya bozuk (EOF sonlandırıcısı bulunamadı).');
   }
   return pairs;
 }
@@ -228,6 +385,18 @@ function parseEntityRecord(pairs, startIdx) {
   return { entity: { type, tags }, nextIdx: i };
 }
 
+function getTagNum(tags, code, def = 0) {
+  const hit = tags.find(([c]) => c === code);
+  if (!hit) return def;
+  const n = Number(String(hit[1]).trim());
+  return Number.isFinite(n) ? n : def;
+}
+
+function getTagStr(tags, code, def = '') {
+  const hit = tags.find(([c]) => c === code);
+  return hit ? String(hit[1]).trim() : def;
+}
+
 function consumeLegacyPolylines(rawStream) {
   const result = [];
   let i = 0;
@@ -235,24 +404,62 @@ function consumeLegacyPolylines(rawStream) {
     const cur = rawStream[i];
     if (cur.type === 'POLYLINE') {
       const layerTag = cur.tags.find(([c]) => c === 8);
-      const flagsTag = cur.tags.find(([c]) => c === 70);
-      const polyFlags = flagsTag ? Number(flagsTag[1].trim()) : 0;
+      const polyFlags = getTagNum(cur.tags, 70, 0);
+      if ((polyFlags & (8 | 16 | 64)) !== 0) {
+        throw new Error(
+          '3B POLYLINE veya çokgen/yüzey ağı (mesh) desteklenmez; yalnızca 2B düzlemsel çizim yükleyin.',
+        );
+      }
+      const elevZ = getTagNum(cur.tags, 30, 0);
+      if (Math.abs(elevZ) > 1e-3) {
+        throw new Error('3B Z kotu (elevation) içeren POLYLINE desteklenmez.');
+      }
+      if (
+        Math.abs(getTagNum(cur.tags, 40, 0)) > 1e-3 ||
+        Math.abs(getTagNum(cur.tags, 41, 0)) > 1e-3
+      ) {
+        throw new Error(
+          'Kalınlıklı (width) POLYLINE desteklenmez; sıfır çizgi kalınlığı kullanın.',
+        );
+      }
       const isClosed = (polyFlags & 1) !== 0;
       const syntheticTags = [];
       if (layerTag) syntheticTags.push([8, layerTag[1]]);
       syntheticTags.push([70, String(isClosed ? 1 : 0)]);
+      for (const code of [67, 210, 220, 230]) {
+        const tag = cur.tags.find(([c]) => c === code);
+        if (tag) syntheticTags.push(tag);
+      }
       const vertices = [];
       i++;
       while (i < rawStream.length && rawStream[i].type !== 'SEQEND') {
         if (rawStream[i].type === 'VERTEX') {
+          const vFlags = getTagNum(rawStream[i].tags, 70, 0);
+          if ((vFlags & (16 | 32 | 64)) !== 0) {
+            throw new Error('3B veya spline kontrol noktası içeren POLYLINE/VERTEX desteklenmez.');
+          }
           let vx = 0;
           let vy = 0;
+          let vz = 0;
           let vb = 0;
           for (const [c, v] of rawStream[i].tags) {
             const num = Number(v.trim());
+            if (!Number.isFinite(num)) continue;
             if (c === 10) vx = num;
             else if (c === 20) vy = num;
-            else if (c === 42) vb = num;
+            else if (c === 30) vz = num;
+            else if (c === 40 && Math.abs(num) > 1e-3) {
+              throw new Error(
+                'Değişken kalınlıklı (width) POLYLINE desteklenmez; sıfır kalınlık kullanın.',
+              );
+            } else if (c === 41 && Math.abs(num) > 1e-3) {
+              throw new Error(
+                'Değişken kalınlıklı (width) POLYLINE desteklenmez; sıfır kalınlık kullanın.',
+              );
+            } else if (c === 42) vb = num;
+          }
+          if (Math.abs(vz) > 1e-3) {
+            throw new Error('3B Z koordinatı içeren POLYLINE desteklenmez.');
           }
           vertices.push({ x: vx, y: vy, bulge: vb });
         }
@@ -274,19 +481,27 @@ function consumeLegacyPolylines(rawStream) {
   return result;
 }
 
-function getTagNum(tags, code, def = 0) {
-  const hit = tags.find(([c]) => c === code);
-  if (!hit) return def;
-  const n = Number(String(hit[1]).trim());
-  return Number.isFinite(n) ? n : def;
+function resolveOcsNegZ(tags, entityType) {
+  const nx = getTagNum(tags, 210, 0);
+  const ny = getTagNum(tags, 220, 0);
+  const nz = getTagNum(tags, 230, 1);
+  if (Math.abs(nx) > 1e-4 || Math.abs(ny) > 1e-4 || Math.abs(Math.abs(nz) - 1) > 1e-4) {
+    throw new Error(
+      `Eğik 3B düzlem normali (210/220/230 = ${nx}, ${ny}, ${nz}) içeren "${entityType}" desteklenmez; yalnızca XY düzlemi desteklenir.`,
+    );
+  }
+  return nz < 0;
 }
 
-function getTagStr(tags, code, def = '') {
-  const hit = tags.find(([c]) => c === code);
-  return hit ? String(hit[1]).trim() : def;
-}
-
-function extractLwPolylineVertices(tags, scale) {
+function extractLwPolylineVertices(tags, scale, ocsNegZ = false) {
+  if (Math.abs(getTagNum(tags, 38, 0)) > 1e-3) {
+    throw new Error('3B Z kotu (38) içeren LWPOLYLINE desteklenmez.');
+  }
+  if (Math.abs(getTagNum(tags, 43, 0)) > 1e-3) {
+    throw new Error(
+      'Sabit kalınlıklı (43) LWPOLYLINE desteklenmez; sıfır çizgi kalınlığı kullanın.',
+    );
+  }
   const rawPts = [];
   let cur = null;
   for (const [c, v] of tags) {
@@ -294,11 +509,15 @@ function extractLwPolylineVertices(tags, scale) {
     if (!Number.isFinite(num)) continue;
     if (c === 10) {
       if (cur !== null) rawPts.push(cur);
-      cur = { pt: [num * scale, 0], bulge: 0 };
+      cur = { pt: [(ocsNegZ ? -num : num) * scale, 0], bulge: 0 };
     } else if (c === 20 && cur !== null) {
       cur.pt[1] = num * scale;
+    } else if ((c === 40 || c === 41) && Math.abs(num) > 1e-3) {
+      throw new Error(
+        'Değişken kalınlıklı (40/41) LWPOLYLINE desteklenmez; sıfır çizgi kalınlığı kullanın.',
+      );
     } else if (c === 42 && cur !== null) {
-      cur.bulge = num;
+      cur.bulge = ocsNegZ ? -num : num;
     }
   }
   if (cur !== null) rawPts.push(cur);
@@ -328,6 +547,7 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
   const pairs = tokenizeDxfPairs(dxfText);
 
   let insUnits = null;
+  let measurement = null;
   const layerMeta = new Map();
   const blocks = new Map();
   const rawModelEntities = [];
@@ -355,6 +575,8 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
             varName = pairs[i][1].trim().toUpperCase();
           } else if (varName === '$INSUNITS' && pairs[i][0] === 70) {
             insUnits = Number(pairs[i][1].trim());
+          } else if (varName === '$MEASUREMENT' && pairs[i][0] === 70) {
+            measurement = Number(pairs[i][1].trim());
           }
           i++;
         }
@@ -365,15 +587,16 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
         ) {
           if (pairs[i][0] === 0 && pairs[i][1].trim().toUpperCase() === 'LAYER') {
             i++;
-            const rec = { name: '0', plot: 1, aci: 7 };
+            const rec = { name: '0', flags: 0, plot: 1, aci: 7 };
             while (i < pairs.length && pairs[i][0] !== 0) {
               const [c, v] = pairs[i];
               if (c === 2) rec.name = sanitizeLayerName(v);
+              else if (c === 70) rec.flags = Number(v.trim()) || 0;
               else if (c === 62) rec.aci = Number(v.trim());
               else if (c === 290) rec.plot = Number(v.trim());
               i++;
             }
-            layerMeta.set(rec.name, rec);
+            layerMeta.set(rec.name.toLowerCase(), rec);
             continue;
           }
           i++;
@@ -388,12 +611,19 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
             let blkName = '';
             let baseX = 0;
             let baseY = 0;
+            let baseZ = 0;
             while (i < pairs.length && pairs[i][0] !== 0) {
               const [c, v] = pairs[i];
               if (c === 2) blkName = v.trim();
               else if (c === 10) baseX = Number(v.trim()) || 0;
               else if (c === 20) baseY = Number(v.trim()) || 0;
+              else if (c === 30) baseZ = Number(v.trim()) || 0;
               i++;
+            }
+            if (Math.abs(baseZ) > 1e-3) {
+              throw new Error(
+                `Blok "${blkName}" 3B Z taban kotu içeriyor; yalnızca 2B XY desteklenir.`,
+              );
             }
             const stream = [];
             while (
@@ -422,7 +652,7 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
               !blkName.toUpperCase().startsWith('*PAPER_SPACE') &&
               !blkName.toUpperCase().startsWith('*MODEL_SPACE')
             ) {
-              blocks.set(blkName, {
+              blocks.set(blkName.toUpperCase(), {
                 basePt: [baseX, baseY],
                 entities: consumeLegacyPolylines(stream),
               });
@@ -458,21 +688,61 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
     i++;
   }
 
-  const unitEntry = INSUNITS_SCALE.get(insUnits);
-  const scale = unitEntry ? unitEntry.scale : 1.0;
-  const detectedUnits = unitEntry ? unitEntry.label : 'unitless (mm varsayıldı)';
-  const unitAssumedMm = insUnits !== 4;
+  let scale = 1.0;
+  let detectedUnits = 'unitless (mm varsayıldı)';
+  let unitAssumedMm = false;
+  if (insUnits === null || insUnits === 0) {
+    if (measurement === 0) {
+      throw new Error(
+        'DXF dosyası emperyal ölçü sisteminde ($MEASUREMENT = 0) ve $INSUNITS = 0/eksik; birim belirsizliği nedeniyle reddedildi.',
+      );
+    }
+    unitAssumedMm = true;
+  } else if (INSUNITS_SCALE.has(insUnits)) {
+    const unitEntry = INSUNITS_SCALE.get(insUnits);
+    scale = unitEntry.scale;
+    detectedUnits = unitEntry.label;
+    unitAssumedMm = false;
+  } else {
+    throw new Error(
+      `Desteklenmeyen DXF birimi ($INSUNITS = ${insUnits}); lütfen mm veya standart CAD birimlerinden birinde dışa aktarın.`,
+    );
+  }
 
   let convertedBulgeArcs = 0;
   let expandedInserts = 0;
   let ignoredAnnotations = 0;
+  let emittedCount = 0;
   const entities = [];
-  const usedLayers = new Set(['0']);
+  const usedLayers = new Map();
+  const canonicalLayerByLower = new Map();
+  const activeBlockStack = new Set();
+
+  const resolveLayerId = (rawName) => {
+    const clean = sanitizeLayerName(rawName);
+    const key = clean.toLowerCase();
+    if (!canonicalLayerByLower.has(key)) {
+      const meta = layerMeta.get(key);
+      canonicalLayerByLower.set(key, meta ? meta.name : clean);
+    }
+    return canonicalLayerByLower.get(key);
+  };
+  usedLayers.set('0', resolveLayerId('0'));
+
+  const trackAndPush = (list, item) => {
+    emittedCount += 1;
+    if (emittedCount > MAX_SHEET_ENTITIES) {
+      throw new Error(
+        `DXF içindeki kesim öğesi sayısı ${MAX_SHEET_ENTITIES} sınırını aşıyor (parçaları bölerek yükleyin).`,
+      );
+    }
+    list.push({ ...item, id: `qg-${emittedCount}` });
+  };
 
   const translatePt = (p, dx, dy) => [p[0] + dx, p[1] + dy];
 
   function transformConvertedEntity(ent, tx, ty, sx, sy, rotDeg, blkBase) {
-    let cur = structuredClone(ent);
+    const cur = structuredClone(ent);
     const bx = blkBase[0] * scale;
     const by = blkBase[1] * scale;
 
@@ -490,7 +760,6 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
     };
 
     const uScale = Math.abs(sx);
-    const mirrored = sx * sy < 0;
 
     if (cur.type === 'line' || cur.type === 'polyline') {
       cur.points = cur.points.map(mapPoint);
@@ -502,15 +771,22 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
       return cur;
     }
     if (cur.type === 'arc') {
-      cur.center = roundPt(translatePt(cur.center, -bx, -by));
-      cur.radius = round6(cur.radius * uScale);
-      if (sx < 0) cur = mirrorEntity(cur, [0, 0], [0, 1]);
-      if (sy < 0) cur = mirrorEntity(cur, [0, 0], [1, 0]);
-      if (Math.abs(rotDeg) > 1e-6) cur = rotateEntity(cur, [0, 0], rotDeg);
-      cur.center = roundPt(translatePt(cur.center, tx, ty));
-      if (mirrored && Math.abs(sx) !== 1) {
-        // radius already scaled; keep invariant
+      cur.center = mapPoint(cur.center);
+      cur.radius = round9(cur.radius * uScale);
+      let sa = Number(cur.start_angle);
+      let ea = Number(cur.end_angle);
+      if (sx < 0) {
+        [sa, ea] = [mod360(180 - ea), mod360(180 - sa)];
       }
+      if (sy < 0) {
+        [sa, ea] = [mod360(-ea), mod360(-sa)];
+      }
+      if (Math.abs(rotDeg) > 1e-6) {
+        sa = mod360(sa + rotDeg);
+        ea = mod360(ea + rotDeg);
+      }
+      cur.start_angle = round9(sa);
+      cur.end_angle = round9(ea);
       return cur;
     }
     return cur;
@@ -531,128 +807,170 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
       );
     }
 
-    const rawLayer = sanitizeLayerName(getTagStr(raw.tags, 8, '0'));
-    const layer = rawLayer === '0' && layerOverride ? layerOverride : rawLayer;
-    usedLayers.add(layer);
+    const rawLayerStr = sanitizeLayerName(getTagStr(raw.tags, 8, '0'));
+    const resolvedLayer = resolveLayerId(rawLayerStr);
+    const layer = rawLayerStr === '0' && layerOverride ? layerOverride : resolvedLayer;
+    usedLayers.set(layer.toLowerCase(), layer);
 
     if (raw.type === 'INSERT') {
       if (depth >= MAX_INSERT_DEPTH) {
         throw new Error(`İç içe INSERT blok derinliği ${MAX_INSERT_DEPTH} sınırını aştı.`);
       }
       const blkName = getTagStr(raw.tags, 2, '');
-      const blk = blocks.get(blkName);
-      if (!blk) return [];
-      const tx = getTagNum(raw.tags, 10, 0) * scale;
+      const blkKey = blkName.toUpperCase();
+      if (activeBlockStack.has(blkKey)) {
+        throw new Error(`Blok "${blkName}" kendi kendine döngüsel referans (INSERT) içeriyor.`);
+      }
+      const blk = blocks.get(blkKey);
+      if (!blk) {
+        throw new Error(
+          `Çizimde çözümlenemeyen dış/eksik "${blkName}" bloku (INSERT) bulundu; göndermeden önce blokları patlatın (EXPLODE).`,
+        );
+      }
+      expandedInserts += 1;
+      if (expandedInserts > MAX_EXPANDED_INSERTS) {
+        throw new Error(`INSERT blok açılım sayısı ${MAX_EXPANDED_INSERTS} sınırını aştı.`);
+      }
+
+      const ocsNegZ = resolveOcsNegZ(raw.tags, 'INSERT');
+      if (Math.abs(getTagNum(raw.tags, 30, 0)) > 1e-3) {
+        throw new Error(`"${blkName}" INSERT bloğu 3B Z konumu içeriyor; yalnızca 2B desteklenir.`);
+      }
+      let tx = getTagNum(raw.tags, 10, 0) * scale;
       const ty = getTagNum(raw.tags, 20, 0) * scale;
-      const sx = getTagNum(raw.tags, 41, 1);
+      let sx = getTagNum(raw.tags, 41, 1);
       const sy = getTagNum(raw.tags, 42, 1);
-      const rot = getTagNum(raw.tags, 50, 0);
+      let rot = getTagNum(raw.tags, 50, 0);
+      if (ocsNegZ) {
+        tx = -tx;
+        sx = -sx;
+        rot = -rot;
+      }
+      if (Math.abs(sx) <= 1e-6 || Math.abs(sy) <= 1e-6) {
+        throw new Error(`Blok "${blkName}" sıfır ölçek (sx=${sx}, sy=${sy}) içeriyor; reddedildi.`);
+      }
       if (Math.abs(Math.abs(sx) - Math.abs(sy)) > 1e-4) {
         throw new Error(
           `Blok "${blkName}" tekdüze olmayan ölçek (${sx}, ${sy}) içeriyor; dairesel yaylar elipse döneceğinden reddedildi.`,
         );
       }
-      expandedInserts += 1;
-      const out = [];
-      for (const child of blk.entities) {
-        for (const conv of convertRaw(child, layer, depth + 1)) {
-          out.push({
-            ...transformConvertedEntity(conv, tx, ty, sx, sy, rot, blk.basePt),
-            id: `qg-${entities.length + out.length + 1}`,
-          });
+      activeBlockStack.add(blkKey);
+      try {
+        const out = [];
+        for (const child of blk.entities) {
+          for (const conv of convertRaw(child, layer, depth + 1)) {
+            out.push(transformConvertedEntity(conv, tx, ty, sx, sy, rot, blk.basePt));
+          }
         }
+        return out;
+      } finally {
+        activeBlockStack.delete(blkKey);
       }
-      return out;
     }
 
-    const baseId = `qg-${entities.length + 1}`;
     if (raw.type === 'LINE') {
+      resolveOcsNegZ(raw.tags, 'LINE');
+      if (
+        Math.abs(getTagNum(raw.tags, 30, 0)) > 1e-3 ||
+        Math.abs(getTagNum(raw.tags, 31, 0)) > 1e-3
+      ) {
+        throw new Error('3B Z koordinatı içeren LINE varlığı desteklenmez; 2B XY çizim yükleyin.');
+      }
       const p1 = roundPt([getTagNum(raw.tags, 10) * scale, getTagNum(raw.tags, 20) * scale]);
       const p2 = roundPt([getTagNum(raw.tags, 11) * scale, getTagNum(raw.tags, 21) * scale]);
       if (distance(p1, p2) <= EPS) return [];
-      return [{ id: baseId, layer, type: 'line', points: [p1, p2] }];
+      const out = [];
+      trackAndPush(out, { layer, type: 'line', points: [p1, p2] });
+      return out;
     }
 
     if (raw.type === 'CIRCLE') {
+      const ocsNegZ = resolveOcsNegZ(raw.tags, 'CIRCLE');
+      if (Math.abs(getTagNum(raw.tags, 30, 0)) > 1e-3) {
+        throw new Error('3B Z koordinatı içeren CIRCLE desteklenmez.');
+      }
       const r = round6(getTagNum(raw.tags, 40) * scale);
       if (r <= EPS) return [];
-      return [
-        {
-          id: baseId,
-          layer,
-          type: 'circle',
-          center: roundPt([getTagNum(raw.tags, 10) * scale, getTagNum(raw.tags, 20) * scale]),
-          radius: r,
-        },
-      ];
+      const cx = (ocsNegZ ? -getTagNum(raw.tags, 10) : getTagNum(raw.tags, 10)) * scale;
+      const cy = getTagNum(raw.tags, 20) * scale;
+      const out = [];
+      trackAndPush(out, {
+        layer,
+        type: 'circle',
+        center: roundPt([cx, cy]),
+        radius: r,
+      });
+      return out;
     }
 
     if (raw.type === 'ARC') {
-      const r = round6(getTagNum(raw.tags, 40) * scale);
+      const ocsNegZ = resolveOcsNegZ(raw.tags, 'ARC');
+      if (Math.abs(getTagNum(raw.tags, 30, 0)) > 1e-3) {
+        throw new Error('3B Z koordinatı içeren ARC desteklenmez.');
+      }
+      const r = round9(getTagNum(raw.tags, 40) * scale);
       if (r <= EPS) return [];
-      const sa = mod360(getTagNum(raw.tags, 50));
-      const ea = mod360(getTagNum(raw.tags, 51));
+      let sa = mod360(getTagNum(raw.tags, 50));
+      let ea = mod360(getTagNum(raw.tags, 51));
+      if (ocsNegZ) {
+        [sa, ea] = [mod360(180 - ea), mod360(180 - sa)];
+      }
       const sw = arcSweepDeg(sa, ea);
       if (sw <= 1e-4 || sw >= 360 - 1e-4) return [];
-      return [
-        {
-          id: baseId,
-          layer,
-          type: 'arc',
-          center: roundPt([getTagNum(raw.tags, 10) * scale, getTagNum(raw.tags, 20) * scale]),
-          radius: r,
-          start_angle: round6(sa),
-          end_angle: round6(ea),
-        },
-      ];
+      const cx = (ocsNegZ ? -getTagNum(raw.tags, 10) : getTagNum(raw.tags, 10)) * scale;
+      const cy = getTagNum(raw.tags, 20) * scale;
+      const out = [];
+      trackAndPush(out, {
+        layer,
+        type: 'arc',
+        center: roundPt([cx, cy]),
+        radius: r,
+        start_angle: round9(sa),
+        end_angle: round9(ea),
+      });
+      return out;
     }
 
     if (raw.type === 'LWPOLYLINE') {
-      const { vertices, closed } = extractLwPolylineVertices(raw.tags, scale);
+      const ocsNegZ = resolveOcsNegZ(raw.tags, 'LWPOLYLINE');
+      const { vertices, closed } = extractLwPolylineVertices(raw.tags, scale, ocsNegZ);
       if (vertices.length < 2) return [];
       const hasBulge = vertices.some(
         (v, idx) => (idx < vertices.length - 1 || closed) && Math.abs(v.bulge) > 1e-7,
       );
       if (!hasBulge) {
         if (closed && vertices.length < 3) return [];
-        return [
-          {
-            id: baseId,
-            layer,
-            type: 'polyline',
-            points: vertices.map((v) => roundPt(v.pt)),
-            closed,
-          },
-        ];
+        const out = [];
+        trackAndPush(out, {
+          layer,
+          type: 'polyline',
+          points: vertices.map((v) => roundPt(v.pt)),
+          closed,
+        });
+        return out;
       }
 
       const segCount = closed ? vertices.length : vertices.length - 1;
-      const converted = [];
+      const out = [];
       for (let k = 0; k < segCount; k++) {
         const cur = vertices[k];
         const next = vertices[(k + 1) % vertices.length];
-        const prim = bulgeSegmentToArc(cur.pt, next.pt, cur.bulge);
-        if (!prim) continue;
-        if (prim.type === 'arc') convertedBulgeArcs += 1;
-        converted.push({
-          id: `${baseId}-s${k + 1}`,
-          layer,
-          ...prim,
-        });
+        for (const prim of bulgeSegmentToPrimitives(cur.pt, next.pt, cur.bulge)) {
+          if (prim.type === 'arc') convertedBulgeArcs += 1;
+          trackAndPush(out, { layer, ...prim });
+        }
       }
-      return converted;
+      return out;
     }
 
-    return [];
+    throw new Error(
+      `Dosyada desteklenmeyen "${raw.type}" varlığı var. Analitik lazer kesim için yalnızca 2B LINE, ARC, CIRCLE ve LWPOLYLINE kullanın.`,
+    );
   }
 
   for (const raw of rawModelEntities) {
-    const pieces = convertRaw(raw);
-    for (const p of pieces) {
-      if (entities.length >= 4990) {
-        throw new Error('DXF içindeki kesim öğesi sayısı 4990 sınırını aşıyor.');
-      }
-      entities.push({ ...p, id: `qg-${entities.length + 1}` });
+    for (const p of convertRaw(raw)) {
+      entities.push(p);
     }
   }
 
@@ -662,21 +980,18 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
     );
   }
 
-  const seenLayerLower = new Set();
   const layers = [];
-  for (const lname of [...usedLayers]) {
-    const clean = sanitizeLayerName(lname);
-    const key = clean.toLowerCase();
-    if (seenLayerLower.has(key)) continue;
-    seenLayerLower.add(key);
-    const meta = layerMeta.get(clean);
+  for (const [key, layerId] of usedLayers.entries()) {
+    const meta = layerMeta.get(key);
+    const isFrozen = Boolean(meta && (meta.flags & 1) !== 0);
+    const isOff = Boolean(meta && Number.isFinite(meta.aci) && meta.aci < 0);
     const isConstruction =
-      Boolean(meta && meta.plot === 0) || /^(construction|defpoints|ref)$/i.test(clean);
+      Boolean(meta && meta.plot === 0) || /^(construction|defpoints|ref)$/i.test(layerId);
     layers.push({
-      id: clean,
-      name: clean,
+      id: layerId,
+      name: layerId,
       color: isConstruction ? '#7c8594' : '#38bdf8',
-      visible: true,
+      visible: !(isFrozen || isOff),
       locked: false,
       ...(isConstruction ? { construction: true } : {}),
     });
@@ -697,6 +1012,15 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
     entities,
   });
 
+  const cutLayers = cuttingLayerIds(drawing);
+  if (
+    !drawing.entities.some((e) => cutLayers.has(e.layer) && e.type !== 'dim' && e.type !== 'text')
+  ) {
+    throw new Error(
+      'Görünür kesim katmanlarında kesilebilir geometri yok (öğeler gizli/dondurulmuş veya yardımcı katmanda).',
+    );
+  }
+
   return {
     drawing,
     intakeReport: {
@@ -712,38 +1036,90 @@ export function ingestIndustrialDxf(dxfText, fileName = 'siparis.dxf') {
   };
 }
 
+function mergeBbox(a, b) {
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+}
+
+function bboxesNear(a, b, pad = 1.5) {
+  return a[0] <= b[2] + pad && a[2] >= b[0] - pad && a[1] <= b[3] + pad && a[3] >= b[1] - pad;
+}
+
+function bboxArea(bb) {
+  return Math.max(0, bb[2] - bb[0]) * Math.max(0, bb[3] - bb[1]);
+}
+
+function bboxCenterDist(bb, pt) {
+  const dx = pt[0] < bb[0] ? bb[0] - pt[0] : pt[0] > bb[2] ? pt[0] - bb[2] : 0;
+  const dy = pt[1] < bb[1] ? bb[1] - pt[1] : pt[1] > bb[3] ? pt[1] - bb[3] : 0;
+  return Math.hypot(dx, dy);
+}
+
+function entitySamplePoints(ent) {
+  if (ent.type === 'line' || ent.type === 'polyline') {
+    const pts = [];
+    const n = ent.points.length;
+    for (let i = 0; i < n; i++) {
+      pts.push(ent.points[i]);
+      if (i + 1 < n || ent.closed) {
+        const nxt = ent.points[(i + 1) % n];
+        pts.push([(ent.points[i][0] + nxt[0]) / 2, (ent.points[i][1] + nxt[1]) / 2]);
+      }
+    }
+    return pts;
+  }
+  if (ent.type === 'circle') {
+    const [cx, cy] = ent.center;
+    const r = ent.radius;
+    return [
+      [cx, cy],
+      [cx + r, cy],
+      [cx - r, cy],
+      [cx, cy + r],
+      [cx, cy - r],
+    ];
+  }
+  if (ent.type === 'arc') {
+    const { pStart, pMid, pEnd } = arcGeometry(ent);
+    return [pStart, pMid, pEnd];
+  }
+  return [];
+}
+
+function pointToSegDist2D(p, a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const l2 = dx * dx + dy * dy;
+  if (l2 <= EPS) return distance(p, a);
+  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2));
+  return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
+}
+
+function pointsNearRootLoop(pts, loop, tol = 1.5) {
+  if (!loop) return false;
+  if (loop.source === 'circle') {
+    return pts.some((p) => Math.abs(distance(p, loop.center) - loop.radius) <= tol);
+  }
+  return pts.some((p) =>
+    loop.edges.some((edge) => {
+      if (edge.kind === 'line') return pointToSegDist2D(p, edge.start, edge.end) <= tol;
+      if (edge.kind === 'arc') {
+        const [cx, cy] = edge.entity.center;
+        return Math.abs(Math.hypot(p[0] - cx, p[1] - cy) - edge.entity.radius) <= tol;
+      }
+      return false;
+    }),
+  );
+}
+
 /**
  * Splits a multi-part DXF drawing into independent validated single-part drawings
- * using Chamfer's analytical loop containment hierarchy.
+ * using Chamfer's analytical loop containment hierarchy without ever dropping cutting entities.
  */
 export function splitDrawingIntoParts(drawing) {
   const validated = validateDrawing(drawing);
+  const cutLayers = cuttingLayerIds(validated);
   const topo = analyzeDrawingTopology(validated);
   const byId = new Map(validated.entities.map((e) => [e.id, e]));
-  const rootLoops = topo.outer_loops;
-
-  const hasOpenOuterBoundary = topo.open_components.some((comp) =>
-    comp.entity_ids.some((eid) => {
-      const ent = byId.get(eid);
-      if (!ent) return false;
-      const [ex0, ey0, ex1, ey1] = entityBbox(ent);
-      return !rootLoops.some((lp) => {
-        const [bx0, by0, bx1, by1] = lp.bbox;
-        return ex0 >= bx0 - 1 && ey0 >= by0 - 1 && ex1 <= bx1 + 1 && ey1 <= by1 + 1;
-      });
-    }),
-  );
-
-  if (rootLoops.length <= 1 || hasOpenOuterBoundary) {
-    return [
-      {
-        partIndex: 1,
-        partId: 'part-1',
-        name: validated.name || 'Parça 1',
-        drawing: validated,
-      },
-    ];
-  }
 
   const loopToRoot = new Map();
   for (let idx = 0; idx < topo.loops.length; idx++) {
@@ -760,61 +1136,148 @@ export function splitDrawingIntoParts(drawing) {
     loopToRoot.set(idx, curIdx);
   }
 
-  const buckets = new Map();
-  rootLoops.forEach((lp) => {
+  const rootClustersByIdx = new Map();
+  for (const lp of topo.outer_loops) {
     const origIdx = topo.loops.indexOf(lp);
-    buckets.set(origIdx, new Set());
-  });
-
-  topo.loops.forEach((lp, idx) => {
-    const rootIdx = loopToRoot.get(idx);
-    const set = buckets.get(rootIdx);
-    if (!set) return;
-    for (const eid of lp.entity_ids) set.add(eid);
-  });
-
-  const assigned = new Set();
-  for (const s of buckets.values()) {
-    for (const eid of s) assigned.add(eid);
+    rootClustersByIdx.set(origIdx, {
+      rootIdx: origIdx,
+      rootLoop: lp,
+      entityIds: new Set(),
+      bbox: [...lp.bbox],
+    });
   }
+  topo.loops.forEach((lp, idx) => {
+    const cluster = rootClustersByIdx.get(loopToRoot.get(idx));
+    if (!cluster) return;
+    for (const eid of lp.entity_ids) cluster.entityIds.add(eid);
+  });
 
-  // Assign any unassigned open entities inside the padded bbox of their enclosing outer profile.
-  for (const ent of validated.entities) {
-    if (assigned.has(ent.id) || ent.type === 'dim' || ent.type === 'text') continue;
-    const [ex0, ey0, ex1, ey1] = entityBbox(ent);
-    const cx = (ex0 + ex1) / 2;
-    const cy = (ey0 + ey1) / 2;
-    let bestRootIdx = null;
-    let bestArea = Infinity;
-    for (const [rootIdx, set] of buckets.entries()) {
-      const lp = topo.loops[rootIdx];
-      const [bx0, by0, bx1, by1] = lp.bbox;
-      if (cx >= bx0 - 2 && cx <= bx1 + 2 && cy >= by0 - 2 && cy <= by1 + 2 && lp.area < bestArea) {
-        bestArea = lp.area;
-        bestRootIdx = rootIdx;
-      }
-      if (set && bestRootIdx === null && rootIdx >= 0) {
-        // fallback tracked below
+  const activeClusters = [...rootClustersByIdx.values()];
+  const rawBadComps = [...topo.open_components, ...topo.branched_components].map((comp) => {
+    const ents = comp.entity_ids.map((eid) => byId.get(eid)).filter(Boolean);
+    let bb = null;
+    const pts = [];
+    for (const ent of ents) {
+      const eb = entityBbox(ent);
+      bb = bb ? mergeBbox(bb, eb) : eb;
+      pts.push(...entitySamplePoints(ent));
+    }
+    return {
+      entityIds: new Set(comp.entity_ids),
+      bbox: bb || [0, 0, 0, 0],
+      pts,
+    };
+  });
+
+  // 1) Merge any enclosed or overlapping rootLoop (e.g. inner or edge-colliding holes inside an unclosed outer bracket) into the open/branched component.
+  const openClusters = [];
+  for (const comp of rawBadComps) {
+    const compArea = bboxArea(comp.bbox);
+    const mergedIndices = [];
+    for (let idx = activeClusters.length - 1; idx >= 0; idx--) {
+      const rc = activeClusters[idx];
+      if (!rc.rootLoop) continue;
+      const lp = rc.rootLoop;
+      const overlapsOrInside = bboxesNear(lp.bbox, comp.bbox, 0.5);
+      const compInsideLoop = comp.pts.every((pt) => pointStrictlyInsideLoop(pt, lp, 1e-4));
+      if (overlapsOrInside && compArea > lp.area && !compInsideLoop) {
+        mergedIndices.push(idx);
       }
     }
-    if (bestRootIdx !== null) {
-      buckets.get(bestRootIdx).add(ent.id);
+    if (mergedIndices.length > 0) {
+      for (const idx of mergedIndices) {
+        const [removed] = activeClusters.splice(idx, 1);
+        for (const eid of removed.entityIds) comp.entityIds.add(eid);
+        comp.bbox = mergeBbox(comp.bbox, removed.bbox);
+      }
+      openClusters.push({ entityIds: comp.entityIds, rootLoop: null, bbox: comp.bbox });
+      continue;
+    }
+
+    // 2) Otherwise attach interior/adjacent open geometry to its enclosing rootLoop if inside/touching it.
+    let targetCluster = null;
+    let bestArea = Infinity;
+    for (const rc of activeClusters) {
+      if (!rc.rootLoop) continue;
+      const inside = comp.pts.some((pt) => pointStrictlyInsideLoop(pt, rc.rootLoop, 1e-4));
+      const nearBoundary =
+        bboxesNear(comp.bbox, rc.bbox, 1.5) && pointsNearRootLoop(comp.pts, rc.rootLoop, 1.5);
+      if ((inside || nearBoundary) && rc.rootLoop.area < bestArea) {
+        bestArea = rc.rootLoop.area;
+        targetCluster = rc;
+      }
+    }
+    if (targetCluster) {
+      for (const eid of comp.entityIds) targetCluster.entityIds.add(eid);
+      targetCluster.bbox = mergeBbox(targetCluster.bbox, comp.bbox);
+    } else {
+      openClusters.push({ entityIds: comp.entityIds, rootLoop: null, bbox: comp.bbox });
+    }
+  }
+
+  // Merge overlapping open clusters (e.g. a single broken boundary split by 2 corner gaps).
+  for (let i = 0; i < openClusters.length; i++) {
+    for (let j = i + 1; j < openClusters.length; j++) {
+      if (bboxesNear(openClusters[i].bbox, openClusters[j].bbox, 1.5)) {
+        for (const eid of openClusters[j].entityIds) openClusters[i].entityIds.add(eid);
+        openClusters[i].bbox = mergeBbox(openClusters[i].bbox, openClusters[j].bbox);
+        openClusters.splice(j, 1);
+        j--;
+      }
+    }
+  }
+
+  const allClusters = [...activeClusters, ...openClusters];
+  const assigned = new Set();
+  for (const c of allClusters) {
+    for (const eid of c.entityIds) assigned.add(eid);
+  }
+
+  // Guarantee zero cutting entities can ever be dropped.
+  for (const ent of validated.entities) {
+    if (assigned.has(ent.id)) continue;
+    const isCut = cutLayers.has(ent.layer) && ent.type !== 'dim' && ent.type !== 'text';
+    const eb = entityBbox(ent);
+    const pt = [(eb[0] + eb[2]) / 2, (eb[1] + eb[3]) / 2];
+
+    let bestCluster = null;
+    let bestDist = Infinity;
+    for (const c of allClusters) {
+      const d = bboxCenterDist(c.bbox, pt);
+      if (d < bestDist) {
+        bestDist = d;
+        bestCluster = c;
+      }
+    }
+    if (bestCluster && (!isCut || bestDist <= 25)) {
+      bestCluster.entityIds.add(ent.id);
+      if (isCut) bestCluster.bbox = mergeBbox(bestCluster.bbox, eb);
+      assigned.add(ent.id);
+    } else if (isCut) {
+      allClusters.push({ entityIds: new Set([ent.id]), rootLoop: null, bbox: eb });
       assigned.add(ent.id);
     }
   }
 
-  const orderedRoots = [...buckets.entries()]
-    .map(([rootIdx, entIds]) => ({
-      rootIdx,
-      loop: topo.loops[rootIdx],
-      entIds,
-    }))
-    .sort((a, b) => a.loop.bbox[0] - b.loop.bbox[0] || b.loop.area - a.loop.area);
+  const ordered = allClusters
+    .filter((c) => c.entityIds.size > 0)
+    .sort((a, b) => a.bbox[0] - b.bbox[0] || bboxArea(b.bbox) - bboxArea(a.bbox));
 
-  return orderedRoots.map((entry, idx) => {
+  if (ordered.length <= 1) {
+    return [
+      {
+        partIndex: 1,
+        partId: 'part-1',
+        name: validated.name || 'Parça 1',
+        drawing: validated,
+      },
+    ];
+  }
+
+  return ordered.map((entry, idx) => {
     const partEntities = [];
     const usedLayerIds = new Set();
-    for (const eid of entry.entIds) {
+    for (const eid of entry.entityIds) {
       const ent = byId.get(eid);
       if (ent) {
         partEntities.push(structuredClone(ent));
@@ -843,6 +1306,20 @@ export function splitDrawingIntoParts(drawing) {
       drawing: partDoc,
     };
   });
+}
+
+function countCuttingSegments(drawing) {
+  const cutLayers = cuttingLayerIds(drawing);
+  let count = 0;
+  for (const ent of drawing.entities || []) {
+    if (!cutLayers.has(ent.layer) || ent.type === 'dim' || ent.type === 'text') continue;
+    if (ent.type === 'polyline') {
+      count += ent.closed ? ent.points.length : Math.max(0, ent.points.length - 1);
+    } else {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 /**
@@ -888,19 +1365,17 @@ export function autoRepairPartDrawing(drawing, thicknessMm = 3.0) {
  * Evaluates each part's analytical DRC status & CAM metrics and calculates an itemized B2B laser quote.
  */
 export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARIFF) {
-  const tariff = { ...DEFAULT_TARIFF, ...(rawTariff || {}) };
+  const tariff = sanitizeTariff(rawTariff);
   const materialId = Object.hasOwn(MATERIALS, params.materialId) ? params.materialId : 'steel_s235';
   const mat = MATERIALS[materialId];
-  const thicknessMm = Math.max(0.5, Math.min(50, Number(params.thicknessMm) || 2.0));
+  const thicknessMm = clampFinite(params.thicknessMm, 2.0, 0.5, 50);
   const currency = ['TRY', 'USD', 'EUR'].includes(params.currency) ? params.currency : 'TRY';
   const express = Boolean(params.express);
 
-  const overrideRate = Number(tariff.materialRateOverrides?.[materialId]);
-  const rateTryPerKg =
-    Number.isFinite(overrideRate) && overrideRate > 0 ? overrideRate : mat.rateTryPerKg;
+  const rateTryPerKg = tariff.materialRateOverrides[materialId] ?? mat.rateTryPerKg;
   const speedFactor = mat.cutSpeedFactor * (1 + Math.max(0, thicknessMm - 1.5) * 0.14);
   const pierceMult = mat.pierceFactor * (1 + Math.max(0, thicknessMm - 2.0) * 0.08);
-  const scrapFactor = 1 + Math.max(0, Number(tariff.scrapMarkupPct ?? 18)) / 100;
+  const scrapFactor = 1 + tariff.scrapMarkupPct / 100;
 
   let totalQty = 0;
   let totalMassKg = 0;
@@ -915,10 +1390,40 @@ export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARI
 
   const evaluatedParts = parts.map((part) => {
     const qty = Math.max(1, Math.min(10000, Math.round(Number(part.qty) || 1)));
+    const segCount = countCuttingSegments(part.drawing);
+    if (segCount > MAX_PART_ENTITIES) {
+      throw new Error(
+        `Parça "${part.name || 'Parça'}" çok karmaşık (${segCount} kesim segmenti > ${MAX_PART_ENTITIES} sınırı); lütfen parçayı sadeleştirin.`,
+      );
+    }
+
     const lint = lintDrawing(part.drawing, { manufacturing: true, thicknessMm });
     const cam = computeCamMetrics(part.drawing, thicknessMm);
+    const partTopo = analyzeDrawingTopology(part.drawing);
 
-    const netVolumeCm3 = (cam.net_area_mm2 * thicknessMm) / 1000;
+    // Fallback to bbox envelope minus closed internal holes when an outer contour is open/broken so unclosed parts cannot bill ~0 plate mass.
+    const envelopeAreaMm2 = cam.bbox_mm[0] * cam.bbox_mm[1];
+    let effectiveAreaMm2 = cam.net_area_mm2;
+    let massEstimated = false;
+    if (
+      partTopo.open_components.length > 0 ||
+      partTopo.branched_components.length > 0 ||
+      partTopo.outer_loops.length === 0
+    ) {
+      const hasLargeOuterLoop = partTopo.outer_loops.some((o) => o.area > envelopeAreaMm2 * 0.75);
+      const holeAreas = partTopo.loops
+        .filter((lp) =>
+          hasLargeOuterLoop ? lp.depth === 1 : lp.depth === 0 && lp.area < envelopeAreaMm2 * 0.75,
+        )
+        .reduce((acc, lp) => acc + lp.area, 0);
+      const fallbackArea = Math.max(0, envelopeAreaMm2 - holeAreas);
+      if (fallbackArea > cam.net_area_mm2 + 1e-3) {
+        effectiveAreaMm2 = fallbackArea;
+        massEstimated = true;
+      }
+    }
+
+    const netVolumeCm3 = (effectiveAreaMm2 * thicknessMm) / 1000;
     const unitMassKg = (netVolumeCm3 * mat.densityGCm3) / 1000;
     const unitCutMeters = cam.cut_length_mm / 1000;
 
@@ -944,6 +1449,7 @@ export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARI
       qty,
       lint,
       cam,
+      massEstimated,
       unitMassKg: round4(unitMassKg),
       unitCutMeters: round4(unitCutMeters),
       unitPriceTry: round2(unitTotalTry),
@@ -951,7 +1457,7 @@ export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARI
     };
   });
 
-  const setupFeeTry = evaluatedParts.length > 0 ? Number(tariff.setupFeeTry) || 0 : 0;
+  const setupFeeTry = evaluatedParts.length > 0 ? tariff.setupFeeTry : 0;
   const rawProdTry = materialCostTry + cuttingCostTry + pierceCostTry;
 
   let discountPct = 0;
@@ -965,15 +1471,10 @@ export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARI
   const baseTry = evaluatedParts.length > 0 ? Math.max(tariff.minOrderTry, afterDiscountTry) : 0;
   const expressSurchargeTry = express ? baseTry * (tariff.expressMultiplier - 1) : 0;
   const subtotalTry = baseTry + expressSurchargeTry;
-  const vatTry = subtotalTry * ((Number(tariff.vatPct) || 20) / 100);
+  const vatTry = subtotalTry * (tariff.vatPct / 100);
   const grandTotalTry = subtotalTry + vatTry;
 
-  const fxDiv =
-    currency === 'USD'
-      ? Math.max(1, Number(tariff.usdTry) || 35)
-      : currency === 'EUR'
-        ? Math.max(1, Number(tariff.eurTry) || 38)
-        : 1;
+  const fxDiv = currency === 'USD' ? tariff.usdTry : currency === 'EUR' ? tariff.eurTry : 1;
 
   const conv = (v) => round2(v / fxDiv);
 
@@ -1008,7 +1509,7 @@ export function calculateSheetQuote(parts, params = {}, rawTariff = DEFAULT_TARI
       subtotal: conv(subtotalTry),
       vatAmount: conv(vatTry),
       grandTotal: conv(grandTotalTry),
-      vatPct: Number(tariff.vatPct) || 20,
+      vatPct: tariff.vatPct,
     },
   };
 }

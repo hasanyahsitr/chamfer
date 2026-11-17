@@ -1142,6 +1142,7 @@ function applyLocaleLabels() {
   $('open-extrude').textContent = s.extrude3dBtn;
   renderPresetSelect();
   $('link-3d').textContent = s.solid3d;
+  if ($('link-quotegate')) $('link-quotegate').textContent = s.quoteGateLink;
   $('lbl-active-layer').textContent = s.activeLayer;
   $('btn-undo').textContent = s.undo;
   $('btn-redo').textContent = s.redo;

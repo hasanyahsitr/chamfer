@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Chamfer QuoteGate — Anında Fason Lazer &amp; CNC Fiyat Teklifi</title>
+    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div class="qg-shell">
+      <header class="qg-topbar no-print">
+        <div class="qg-brand-wrap">
+          <span class="qg-logo" aria-hidden="true">
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M4 8.5 8.5 4H20v16H4V8.5Z" />
+              <path d="M4 8.5h4.5V4" stroke="#f59e0b" />
+            </svg>
+          </span>
+          <div>
+            <div id="qg-shop-name" class="qg-shop-name">Aeon Lazer &amp; CNC Atölyesi</div>
+            <div id="qg-subtitle" class="qg-subtitle">
+              Chamfer QuoteGate · Milimetrik DXF Analizi &amp; Anında Teklif
+            </div>
+          </div>
+        </div>
+
+        <div class="qg-top-actions">
+          <a href="./index.html" class="qg-nav-link" id="link-cad-editor">2D CAD Editörü</a>
+          <div class="qg-lang" role="group" aria-label="Language">
+            <button type="button" id="btn-lang-tr" class="active">TR</button>
+            <button type="button" id="btn-lang-en">EN</button>
+          </div>
+          <button type="button" id="btn-open-tariff" class="qg-btn-soft">
+            Atölye Ayarları &amp; Sitene Göm
+          </button>
+        </div>
+      </header>
+
+      <main class="qg-layout">
+        <section class="qg-left">
+          <div
+            id="drop-zone"
+            class="qg-dropzone no-print"
+            tabindex="0"
+            role="button"
+            aria-label="DXF Dosyası Yükle"
+          >
+            <input id="file-input" type="file" accept=".dxf,.DXF" hidden />
+            <div class="qg-drop-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                width="26"
+                height="26"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M12 16V4" />
+                <polyline points="7 9 12 4 17 9" />
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+              </svg>
+            </div>
+            <h1 id="drop-title" class="qg-drop-title">DXF Dosyanızı Sürükleyin veya Seçin</h1>
+            <p id="drop-desc" class="qg-drop-desc">
+              AutoCAD / SolidWorks R2000–R2018 ASCII DXF dosyalarını (yaylı LWPOLYLINE, çoklu parça,
+              blok) saniyeler içinde milimetrik olarak analiz edip fiyatlandırır.
+            </p>
+            <div class="qg-demo-bar">
+              <span id="demo-lbl" class="qg-demo-lbl">Hemen Dene:</span>
+              <button type="button" class="qg-demo-btn" data-preset="multi_part_bulge">
+                Çoklu Parça + Kavisli Flanş
+              </button>
+              <button type="button" class="qg-demo-btn" data-preset="faulty_bracket">
+                Hatalı Müşteri Çizimi (Tamirli)
+              </button>
+              <button type="button" class="qg-demo-btn" data-preset="nema17_plate">
+                NEMA-17 Motor Sacı
+              </button>
+            </div>
+          </div>
+
+          <div id="error-banner" class="qg-alert error" hidden></div>
+          <div id="intake-banner" class="qg-alert info" hidden></div>
+
+          <div class="qg-parts-head">
+            <div>
+              <h2 id="parts-heading" class="qg-sec-title">Parçalar &amp; Üretim Doğrulama (DRC)</h2>
+              <p id="parts-sub" class="qg-sec-sub">
+                Her parça kapalı kontur, delik çakışması ve kenar payı açısından analitik olarak
+                kontrol edilir.
+              </p>
+            </div>
+            <span id="parts-count-pill" class="qg-pill">0 Parça</span>
+          </div>
+
+          <div id="parts-list" class="qg-parts-list"></div>
+        </section>
+
+        <aside class="qg-right">
+          <div class="qg-quote-card">
+            <div class="qg-quote-head">
+              <div>
+                <div id="quote-kicker" class="qg-kicker">ANINDA KESİM TEKLİFİ</div>
+                <h2 id="quote-heading" class="qg-quote-title">Maliyet Özeti</h2>
+              </div>
+              <div id="quote-valid-badge" class="qg-status-pill pass">Hazır</div>
+            </div>
+
+            <div class="qg-controls">
+              <div class="qg-field">
+                <label id="lbl-material" for="sel-material">Malzeme Türü</label>
+                <select id="sel-material"></select>
+              </div>
+
+              <div class="qg-field-row">
+                <div class="qg-field">
+                  <label id="lbl-thickness" for="sel-thickness">Sac Kalınlığı (mm)</label>
+                  <select id="sel-thickness">
+                    <option value="1">1.0 mm</option>
+                    <option value="1.5">1.5 mm</option>
+                    <option value="2" selected>2.0 mm</option>
+                    <option value="3">3.0 mm</option>
+                    <option value="4">4.0 mm</option>
+                    <option value="5">5.0 mm</option>
+                    <option value="6">6.0 mm</option>
+                    <option value="8">8.0 mm</option>
+                    <option value="10">10.0 mm</option>
+                    <option value="12">12.0 mm</option>
+                    <option value="15">15.0 mm</option>
+                  </select>
+                </div>
+
+                <div class="qg-field">
+                  <label id="lbl-currency" for="sel-currency">Para Birimi</label>
+                  <select id="sel-currency">
+                    <option value="TRY">₺ TRY</option>
+                    <option value="USD">$ USD</option>
+                    <option value="EUR">€ EUR</option>
+                  </select>
+                </div>
+              </div>
+
+              <label class="qg-check-row" for="chk-express">
+                <input id="chk-express" type="checkbox" />
+                <span id="lbl-express">24 Saat Ekspres Üretim (+%35)</span>
+              </label>
+            </div>
+
+            <div id="quote-telemetry" class="qg-telemetry-grid"></div>
+            <div id="quote-breakdown" class="qg-breakdown"></div>
+
+            <div class="qg-total-box">
+              <div class="qg-total-row">
+                <span id="lbl-grand-total">KDV Dahil Toplam</span>
+                <strong id="val-grand-total" class="qg-grand-total">₺0,00</strong>
+              </div>
+              <p id="lbl-floor-note" class="qg-floor-note" hidden></p>
+            </div>
+
+            <div class="qg-quote-actions no-print">
+              <button type="button" id="btn-whatsapp" class="qg-btn-primary">
+                WhatsApp ile Sipariş Gönder
+              </button>
+              <button type="button" id="btn-print-quote" class="qg-btn-secondary">
+                Teklif Formu Yazdır / PDF
+              </button>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Workshop Tariff & Embed Settings Modal -->
+    <div id="tariff-backdrop" class="qg-backdrop no-print" hidden>
+      <section class="qg-modal" role="dialog" aria-modal="true" aria-labelledby="tariff-title">
+        <div class="qg-modal-head">
+          <div>
+            <h2 id="tariff-title" class="qg-modal-title">
+              Atölye Fiyat Tarifesi &amp; Web Sitesi Gömme
+            </h2>
+            <p class="qg-sec-sub">
+              Kendi birim fiyatlarınızı ve WhatsApp hattınızı girin; tarifeniz tarayıcınızda
+              saklanır.
+            </p>
+          </div>
+          <button type="button" id="btn-close-tariff" class="qg-btn-icon" aria-label="Kapat">
+            ✕
+          </button>
+        </div>
+
+        <form id="tariff-form" class="qg-modal-body">
+          <div class="qg-field-row">
+            <div class="qg-field">
+              <label for="tf-shop-name">Atölye / Firma Adı</label>
+              <input id="tf-shop-name" type="text" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-whatsapp">Sipariş WhatsApp No (Örn: 905551234567)</label>
+              <input id="tf-whatsapp" type="tel" placeholder="90555..." />
+            </div>
+          </div>
+
+          <div class="qg-field-row three">
+            <div class="qg-field">
+              <label for="tf-cut-rate">Kesim Ücreti (₺/metre)</label>
+              <input id="tf-cut-rate" type="number" step="0.5" min="1" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-pierce">Patlatma (₺/delik)</label>
+              <input id="tf-pierce" type="number" step="0.25" min="0" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-setup">Makine Hazırlık (₺)</label>
+              <input id="tf-setup" type="number" step="5" min="0" required />
+            </div>
+          </div>
+
+          <div class="qg-field-row three">
+            <div class="qg-field">
+              <label for="tf-min-order">Min. Sipariş (₺)</label>
+              <input id="tf-min-order" type="number" step="10" min="0" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-scrap">Fire Payı (%)</label>
+              <input id="tf-scrap" type="number" step="1" min="0" max="100" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-vat">KDV (%)</label>
+              <input id="tf-vat" type="number" step="1" min="0" max="40" required />
+            </div>
+          </div>
+
+          <div class="qg-field-row">
+            <div class="qg-field">
+              <label for="tf-mat-steel">DKP Çelik (₺/kg)</label>
+              <input id="tf-mat-steel" type="number" step="1" min="1" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-mat-ss">304 Paslanmaz (₺/kg)</label>
+              <input id="tf-mat-ss" type="number" step="1" min="1" required />
+            </div>
+            <div class="qg-field">
+              <label for="tf-mat-al">Alüminyum (₺/kg)</label>
+              <input id="tf-mat-al" type="number" step="1" min="1" required />
+            </div>
+          </div>
+
+          <div class="qg-embed-box">
+            <label for="tf-embed-code">Web Sitenize Gömme Kodu (iframe)</label>
+            <textarea id="tf-embed-code" rows="2" readonly></textarea>
+            <button type="button" id="btn-copy-embed" class="qg-btn-soft">
+              Embed Kodunu Kopyala
+            </button>
+          </div>
+
+          <div class="qg-modal-foot">
+            <button type="button" id="btn-reset-tariff" class="qg-btn-soft">Varsayılana Dön</button>
+            <button type="submit" class="qg-btn-primary">Tarifeyi Kaydet</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script type="module" src="./src/quotegate/app.js"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@ export default defineConfig({
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         drafting: fileURLToPath(new URL('./drafting.html', import.meta.url)),
         plate: fileURLToPath(new URL('./plate.html', import.meta.url)),
+        quotegate: fileURLToPath(new URL('./quotegate.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {
